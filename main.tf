@@ -4,10 +4,6 @@ provider "aws" {
     profile = "dev"
 }
 
-# variable "ssh_key_name" {
-#   type = string
-#   default = "dev"
-# }
 
 # create vpc
 resource "aws_vpc" "vpc123" {
@@ -98,19 +94,3 @@ resource "aws_route_table_association" "a3" {
   route_table_id = aws_route_table.rt.id
 }
 
-# associate route table and gateway
-# resource "aws_route_table_association" "b" {
-#   gateway_id     = aws_internet_gateway.gw.id
-#   route_table_id = aws_route_table.rt.id
-# }
-
-
-
-# Create a public route in the public route table created above 
-# with destination CIDR block 0.0.0.0/0 and internet gateway created above as the target.
-# resource "aws_route" "r" {
-#   route_table_id            = "rtb-4fbb3ac4"
-#   destination_cidr_block    = "0.0.0.0/0 "
-#   vpc_peering_connection_id = "pcx-45ff3dc1"
-#   depends_on                = [aws_route_table.testing]
-# }
