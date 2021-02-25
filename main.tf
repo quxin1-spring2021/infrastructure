@@ -1,14 +1,14 @@
 provider "aws" {
-  region = "us-west-2"
-    shared_credentials_file = "/Users/enochqu/.aws/credentials"
-    profile = "dev"
+  region = var.vpc_region
+  shared_credentials_file = var.credential_file
+  profile = var.run_profile
 }
 
 
 # create vpc
 resource "aws_vpc" "vpc123" {
-  cidr_block       = "10.0.0.0/16"
-    enable_dns_hostnames = true
+  cidr_block       = var.vpc_cidr_block
+  enable_dns_hostnames = true
   enable_dns_support = true
   enable_classiclink_dns_support = true
   assign_generated_ipv6_cidr_block = false
@@ -22,8 +22,8 @@ resource "aws_vpc" "vpc123" {
 # create subnets
 resource "aws_subnet" "subnet01" {
   vpc_id     = aws_vpc.vpc123.id
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "us-west-2a"
+  cidr_block = var.subnet1_cidr_block
+  availability_zone = "${var.vpc_region}a"
     map_public_ip_on_launch = true
   tags = {
     Name = "csye6225-vpc-test-subnet-01"
@@ -32,8 +32,8 @@ resource "aws_subnet" "subnet01" {
 
 resource "aws_subnet" "subnet02" {
   vpc_id     = aws_vpc.vpc123.id
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "us-west-2b"
+  cidr_block = var.subnet2_cidr_block
+  availability_zone = "${var.vpc_region}b"
   map_public_ip_on_launch = true
   tags = {
     Name = "csye6225-vpc-test-subnet-02"
@@ -42,9 +42,9 @@ resource "aws_subnet" "subnet02" {
 
 resource "aws_subnet" "subnet03" {
   vpc_id     = aws_vpc.vpc123.id
-  cidr_block = "10.0.3.0/24"
-  availability_zone = "us-west-2c"
-    map_public_ip_on_launch = true
+  cidr_block = var.subnet3_cidr_block
+  availability_zone = "${var.vpc_region}c"
+  map_public_ip_on_launch = true
   tags = {
     Name = "csye6225-vpc-test-subnet-03"
   }
@@ -64,15 +64,9 @@ resource "aws_route_table" "rt" {
   vpc_id = aws_vpc.vpc123.id
 
   route {
-    cidr_block = "0.0.0.0/0"
+    cidr_block = var.route_cidr_block
     gateway_id = aws_internet_gateway.gw.id
   }
-
-#   route {
-#     ipv6_cidr_block        = "::/0"
-#     egress_only_gateway_id = aws_egress_only_internet_gateway.foo.id
-#   }
-
   tags = {
     Name = "csye6225-test-route-table-as3"
   }
