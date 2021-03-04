@@ -33,6 +33,15 @@ variable "subnet3_cidr_block" {
 }
 
 variable "route_cidr_block" {
-          type        = string
+      type        = string
   default     = "0.0.0.0/0"
+}
+
+variable "ver" {
+  type = string
+  default = "0.0.0"
+}
+
+variable "vpc_name" {
+  
 }

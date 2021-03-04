@@ -15,7 +15,7 @@ resource "aws_vpc" "vpc123" {
   instance_tenancy = "default"
 
   tags = {
-    Name = "csye6225-test-vpc"
+    Name = "${var.vpc_name}-vpc"
   }
 }
 
@@ -26,7 +26,7 @@ resource "aws_subnet" "subnet01" {
   availability_zone = "${var.vpc_region}a"
     map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-subnet-01"
+    Name = "csye6225-vpc-test-${var.ver}-subnet-01"
   }
 }
 
@@ -36,7 +36,7 @@ resource "aws_subnet" "subnet02" {
   availability_zone = "${var.vpc_region}b"
   map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-subnet-02"
+    Name = "csye6225-vpc-test-${var.ver}-subnet-02"
   }
 }
 
@@ -46,7 +46,7 @@ resource "aws_subnet" "subnet03" {
   availability_zone = "${var.vpc_region}c"
   map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-subnet-03"
+    Name = "csye6225-vpc-test-${var.ver}-subnet-03"
   }
 }
 
@@ -68,7 +68,7 @@ resource "aws_route_table" "rt" {
     gateway_id = aws_internet_gateway.gw.id
   }
   tags = {
-    Name = "csye6225-test-route-table-as3"
+    Name = "csye6225-test-${var.ver}-route-table"
   }
 }
 
