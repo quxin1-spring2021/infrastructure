@@ -6,7 +6,7 @@ provider "aws" {
 
 
 # create vpc
-resource "aws_vpc" "vpc123" {
+resource "aws_vpc" "my_vpc" {
   cidr_block       = var.vpc_cidr_block
   enable_dns_hostnames = true
   enable_dns_support = true
@@ -15,60 +15,60 @@ resource "aws_vpc" "vpc123" {
   instance_tenancy = "default"
 
   tags = {
-    Name = "${var.vpc_name}-vpc"
+    Name = "demo-${var.ver}-${var.vpc_name}-vpc"
   }
 }
 
 # create subnets
 resource "aws_subnet" "subnet01" {
-  vpc_id     = aws_vpc.vpc123.id
+  vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet1_cidr_block
   availability_zone = "${var.vpc_region}a"
     map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-${var.ver}-subnet-01"
+    Name = "demo-${var.ver}-subnet-01"
   }
 }
 
 resource "aws_subnet" "subnet02" {
-  vpc_id     = aws_vpc.vpc123.id
+  vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet2_cidr_block
   availability_zone = "${var.vpc_region}b"
   map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-${var.ver}-subnet-02"
+    Name = "demo-${var.ver}-subnet-02"
   }
 }
 
 resource "aws_subnet" "subnet03" {
-  vpc_id     = aws_vpc.vpc123.id
+  vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet3_cidr_block
   availability_zone = "${var.vpc_region}c"
   map_public_ip_on_launch = true
   tags = {
-    Name = "csye6225-vpc-test-${var.ver}-subnet-03"
+    Name = "demo-${var.ver}-subnet-03"
   }
 }
 
 # create internet gateway
 resource "aws_internet_gateway" "gw" {
-  vpc_id = aws_vpc.vpc123.id
+  vpc_id = aws_vpc.my_vpc.id
 
   tags = {
-    Name = "csye6225-test-internet-gateway"
+    Name = "demo-${var.ver}-internet-gateway"
   }
 }
 
 # create a public route table
 resource "aws_route_table" "rt" {
-  vpc_id = aws_vpc.vpc123.id
+  vpc_id = aws_vpc.my_vpc.id
 
   route {
     cidr_block = var.route_cidr_block
     gateway_id = aws_internet_gateway.gw.id
   }
   tags = {
-    Name = "csye6225-test-${var.ver}-route-table"
+    Name = "demo-${var.ver}-route-table"
   }
 }
 
@@ -90,7 +90,7 @@ resource "aws_route_table_association" "a3" {
 
 # create IAM policy
 resource "aws_iam_policy" "policy" {
-  name        = "WebAppS3Test"
+  name        = "WebAppS3-Demo"
   description = "Permissions for the S3 bucket to create secure policies."
 
   # Terraform's "jsonencode" function converts a
@@ -104,8 +104,8 @@ resource "aws_iam_policy" "policy" {
             ],
             "Effect": "Allow",
             "Resource": [
-                "arn:aws:s3:::webapp.xin.qu.1",
-                "arn:aws:s3:::webapp.xin.qu.1/*"
+                "arn:aws:s3:::${aws_s3_bucket.bucket.id}",
+                "arn:aws:s3:::${aws_s3_bucket.bucket.id}/*"
             ]
         }
     ]
@@ -114,7 +114,7 @@ resource "aws_iam_policy" "policy" {
 
 # create IAM Role
 resource "aws_iam_role" "role" {
-  name = "EC2-CSYE6225-TEST"
+  name = "EC2-CSYE6225-DEMO"
   description = "Allows EC2 instances to call AWS services on your behalf."
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -142,7 +142,7 @@ resource "aws_iam_role_policy_attachment" "test-attach" {
 resource "aws_security_group" "application" {
   name        = "WebApplicationSecurityGroup"
   description = "WebApplicationSecurityGroup"
-  vpc_id      = aws_vpc.vpc123.id
+  vpc_id      = aws_vpc.my_vpc.id
 
   ingress {
     from_port   = 443
@@ -172,12 +172,18 @@ resource "aws_security_group" "application" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group" "database" {
   name        = "DBSecurityGroup"
   description = "EC2 security group for your RDS instances."
-  vpc_id      = aws_vpc.vpc123.id
+  vpc_id      = aws_vpc.my_vpc.id
 
 
   ingress {
@@ -200,7 +206,7 @@ resource "aws_security_group" "database" {
 
 # S3 bucket
 resource "aws_s3_bucket" "bucket" {
-  bucket = "webapp.xin.qu.1"
+  bucket = var.bucket_name
   acl    = "private"
 
   server_side_encryption_configuration {
@@ -237,18 +243,18 @@ resource "aws_db_subnet_group" "default" {
 }
 
 resource "aws_iam_instance_profile" "app_profile" {
-  name = "app_profile"
+  name = "app_iam_profile"
   role = aws_iam_role.role.name
 }
 
 # RDS instance
-resource "aws_db_instance" "default" {
+resource "aws_db_instance" "db_instance" {
   allocated_storage    = 20
   engine               = "mysql"
   engine_version       = "8.0.20"
   instance_class       = "db.t3.micro"
-  identifier           = "csye6225test"
-  name                 = "csye6225test"
+  identifier           = "csye6225"
+  name                 = "csye6225"
   username             = "csye6225"
   password             = "Crazy97021^"
   multi_az             = false
@@ -261,10 +267,11 @@ resource "aws_db_instance" "default" {
 # EC2 instance
 
 resource "aws_instance" "webapp" {
-  ami           = "ami-0d8bab8715de03443"
+  ami           = var.ami
   instance_type = "t2.micro"
+  key_name = "csye6225_2021spring"
   vpc_security_group_ids = [aws_security_group.application.id]
-  iam_instance_profile = aws_iam_instance_profile.app_profile.name
+  iam_instance_profile = aws_iam_instance_profile.app_profile.id
   subnet_id = aws_subnet.subnet01.id
   root_block_device {
     volume_size = 20
@@ -276,4 +283,31 @@ resource "aws_instance" "webapp" {
     Name = "EC2-WebApplication"
   }
 
+  user_data =  <<EOF
+Content-Type: multipart/mixed; boundary="//"
+MIME-Version: 1.0
+--//
+Content-Type: text/cloud-config; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="cloud-config.txt"
+#cloud-config
+cloud_final_modules:
+- [scripts-user, always]
+--//
+Content-Type: text/x-shellscript; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="userdata.txt"
+#!/bin/bash
+/bin/echo "Hello World" >> /home/ubuntu/testfile.txt
+/bin/mkdir /home/ubuntu/webapp
+/bin/echo 'HOSTNAME = ${aws_db_instance.db_instance.address}' > /home/ubuntu/webapp/.env
+/bin/echo 'RDS_USERNAME = ${aws_db_instance.db_instance.username}' >> /home/ubuntu/webapp/.env
+/bin/echo 'RDS_PASSWORD = ${var.password}' >> /home/ubuntu/webapp/.env
+/bin/echo 'RDS_DATABASE = ${aws_db_instance.db_instance.name}' >> /home/ubuntu/webapp/.env
+/bin/echo 'RDS_PORT = ${aws_db_instance.db_instance.port}' >> /home/ubuntu/webapp/.env
+/bin/echo 'BUCKET_NAME = ${aws_s3_bucket.bucket.id}' >> /home/ubuntu/webapp/.env
+--//
+EOF
 }
