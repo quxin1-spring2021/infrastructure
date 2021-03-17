@@ -104,8 +104,8 @@ resource "aws_iam_policy" "webapp_s3_policy" {
             ],
             "Effect": "Allow",
             "Resource": [
-                "arn:aws:s3:::${aws_s3_bucket.object.id}",
-                "arn:aws:s3:::${aws_s3_bucket.object.id}/*"
+                "arn:aws:s3:::webapp.xin.qu",
+                "arn:aws:s3:::webapp.xin.qu/*"
             ]
         }
     ]
@@ -135,6 +135,7 @@ resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
         }
     ]
 })
+}
 
 # Policy allows EC2 instances to read data from S3 buckets. 
 resource "aws_iam_policy" "GH_Upload_To_S3" {
@@ -154,12 +155,13 @@ resource "aws_iam_policy" "GH_Upload_To_S3" {
                 "s3:List*"
             ],
             "Resource": [
-                "arn:aws:s3:::codedeploy.webapp.xin.qu",
-                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
+                "arn:aws:s3:::${aws_s3_bucket.object.id}",
+                "arn:aws:s3:::${aws_s3_bucket.object.id}/*"
             ]
         }
     ]
 })
+}
 
 # Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances.
 resource "aws_iam_policy" "GH_Code_Deploy" {
@@ -177,7 +179,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
                 "codedeploy:GetApplicationRevision",
                 "codedeploy:RegisterApplicationRevision"
             ],
-            "Resource": "arn:aws:codedeploy:${var.vpc_region}:973459261718:application:test"
+            "Resource": "arn:aws:codedeploy:${var.vpc_region}:973459261718:application:${aws_codedeploy_app.csye6225_webapp.name}"
         },
         {
             "Effect": "Allow",
@@ -200,10 +202,11 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
         }
     ]
 })
+}
 
 # Policy allows EC2 instances to read data from S3 buckets. 
 resource "aws_iam_policy" "GH_EC2_AMI" {
-  name        = "GH-EC2-AMI "
+  name        = "GH-EC2-AMI"
   description = "Permissions for the S3 bucket to create secure policies."
 
   # Terraform's "jsonencode" function converts a
@@ -252,6 +255,7 @@ resource "aws_iam_policy" "GH_EC2_AMI" {
         }
     ]
 })
+}
 
 # create IAM User
 
@@ -303,7 +307,7 @@ resource "aws_iam_role_policy_attachment" "CodeDeployEC2Policy_S3_Object_Attach"
 }
 
 # attach CodeDeployEC2ServiceRole and policy
-resource "aws_iam_role_policy_attachment" "CodeDeployRolePolicy_Attach" {
+resource "aws_iam_role_policy_attachment" "CodeDeployEC2RolePolicy_Attach" {
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
   policy_arn = aws_iam_policy.CodeDeploy_EC2_S3.arn
 }
@@ -331,7 +335,7 @@ resource "aws_iam_role" "CodeDeployServiceRole" {
 # attach CodeDeployServiceRole and policy
 resource "aws_iam_role_policy_attachment" "CodeDeployRolePolicy_Attach" {
   role       = aws_iam_role.CodeDeployServiceRole.name
-  policy_arn = arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
 }
 
 
@@ -340,16 +344,10 @@ resource "aws_codedeploy_app" "csye6225_webapp" {
   name             = "csye6225-webapp"
 }
 
-resource "aws_codedeploy_deployment_config" "allatonce" {
-  deployment_config_name = "allatonce-deployment-config"
-
-  traffic_routing_config  {
-    type = "AllAtOnce"
-  }
-}
 
 resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
   app_name              = aws_codedeploy_app.csye6225_webapp.name
+  deployment_config_name = "CodeDeployDefault.AllAtOnce"
   deployment_group_name = "csye6225-webapp-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
 
