@@ -89,7 +89,7 @@ resource "aws_route_table_association" "a3" {
 }
 
 # create IAM policy
-resource "aws_iam_policy" "policy" {
+resource "aws_iam_policy" "webapp_s3_policy" {
   name        = "WebAppS3-Demo"
   description = "Permissions for the S3 bucket to create secure policies."
 
@@ -104,18 +104,183 @@ resource "aws_iam_policy" "policy" {
             ],
             "Effect": "Allow",
             "Resource": [
-                "arn:aws:s3:::${aws_s3_bucket.bucket.id}",
-                "arn:aws:s3:::${aws_s3_bucket.bucket.id}/*"
+                "arn:aws:s3:::${aws_s3_bucket.object.id}",
+                "arn:aws:s3:::${aws_s3_bucket.object.id}/*"
             ]
         }
     ]
 })
 }
 
-# create IAM Role
-resource "aws_iam_role" "role" {
-  name = "EC2-CSYE6225-DEMO"
-  description = "Allows EC2 instances to call AWS services on your behalf."
+# Policy allows EC2 instances to read data from S3 buckets. 
+resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
+  name        = "CodeDeploy-EC2-S3"
+  description = "Policy allows EC2 instances to read data from S3 buckets. "
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "s3:Get*",
+                "s3:List*"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                "arn:aws:s3:::codedeploy.webapp.xin.qu",
+                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
+            ]
+        }
+    ]
+})
+
+# Policy allows EC2 instances to read data from S3 buckets. 
+resource "aws_iam_policy" "GH_Upload_To_S3" {
+  name        = "GH-Upload-To-S3"
+  description = "Permissions for the S3 bucket to create secure policies."
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:Get*",
+                "s3:List*"
+            ],
+            "Resource": [
+                "arn:aws:s3:::codedeploy.webapp.xin.qu",
+                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
+            ]
+        }
+    ]
+})
+
+# Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances.
+resource "aws_iam_policy" "GH_Code_Deploy" {
+  name        = "GH-Code-Deploy"
+  description = "Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances."
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "codedeploy:GetApplicationRevision",
+                "codedeploy:RegisterApplicationRevision"
+            ],
+            "Resource": "arn:aws:codedeploy:${var.vpc_region}:973459261718:application:test"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "codedeploy:CreateDeployment",
+                "codedeploy:GetDeployment"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "codedeploy:GetDeploymentConfig"
+            ],
+            "Resource": [
+                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.OneAtATime",
+                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.HalfAtATime",
+                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.AllAtOnce"
+            ]
+        }
+    ]
+})
+
+# Policy allows EC2 instances to read data from S3 buckets. 
+resource "aws_iam_policy" "GH_EC2_AMI" {
+  name        = "GH-EC2-AMI "
+  description = "Permissions for the S3 bucket to create secure policies."
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:AttachVolume",
+                "ec2:AuthorizeSecurityGroupIngress",
+                "ec2:CopyImage",
+                "ec2:CreateImage",
+                "ec2:CreateKeypair",
+                "ec2:CreateSecurityGroup",
+                "ec2:CreateSnapshot",
+                "ec2:CreateTags",
+                "ec2:CreateVolume",
+                "ec2:DeleteKeyPair",
+                "ec2:DeleteSecurityGroup",
+                "ec2:DeleteSnapshot",
+                "ec2:DeleteVolume",
+                "ec2:DeregisterImage",
+                "ec2:DescribeImageAttribute",
+                "ec2:DescribeImages",
+                "ec2:DescribeInstances",
+                "ec2:DescribeInstanceStatus",
+                "ec2:DescribeRegions",
+                "ec2:DescribeSecurityGroups",
+                "ec2:DescribeSnapshots",
+                "ec2:DescribeSubnets",
+                "ec2:DescribeTags",
+                "ec2:DescribeVolumes",
+                "ec2:DetachVolume",
+                "ec2:GetPasswordData",
+                "ec2:ModifyImageAttribute",
+                "ec2:ModifyInstanceAttribute",
+                "ec2:ModifySnapshotAttribute",
+                "ec2:RegisterImage",
+                "ec2:RunInstances",
+                "ec2:StopInstances",
+                "ec2:TerminateInstances"
+            ],
+            "Resource": "*"
+        }
+    ]
+})
+
+# create IAM User
+
+resource "aws_iam_user" "ghactions" {
+  name = "ghactions"
+  path = "/"
+}
+
+# attach IAM Policies for IAM User
+resource "aws_iam_user_policy_attachment" "ghaction_S3" {
+  user       = aws_iam_user.ghactions.name
+  policy_arn = aws_iam_policy.GH_Upload_To_S3.arn
+}
+
+resource "aws_iam_user_policy_attachment" "ghaction_CodeDeploy" {
+  user       = aws_iam_user.ghactions.name
+  policy_arn = aws_iam_policy.GH_Code_Deploy.arn
+}
+
+resource "aws_iam_user_policy_attachment" "ghaction_AMI" {
+  user       = aws_iam_user.ghactions.name
+  policy_arn = aws_iam_policy.GH_EC2_AMI.arn
+}
+
+
+# create CodeDeployEC2ServiceRole IAM Role
+resource "aws_iam_role" "CodeDeployEC2ServiceRole" {
+  name = "CodeDeploy-EC2-Service-Role"
+  description = "for EC2 instances that will be used to host your web application."
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -129,13 +294,77 @@ resource "aws_iam_role" "role" {
       },
     ]
   })
-
 }
 
-# attach role and policy
-resource "aws_iam_role_policy_attachment" "test-attach" {
-  role       = aws_iam_role.role.name
-  policy_arn = aws_iam_policy.policy.arn
+# attach CodeDeployEC2ServiceRole and policy
+resource "aws_iam_role_policy_attachment" "CodeDeployEC2Policy_S3_Object_Attach" {
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
+  policy_arn = aws_iam_policy.webapp_s3_policy.arn
+}
+
+# attach CodeDeployEC2ServiceRole and policy
+resource "aws_iam_role_policy_attachment" "CodeDeployRolePolicy_Attach" {
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
+  policy_arn = aws_iam_policy.CodeDeploy_EC2_S3.arn
+}
+
+
+# create CodeDeployServiceRole IAM Role
+resource "aws_iam_role" "CodeDeployServiceRole" {
+  name = "CodeDeployServiceRole"
+  description = "Allows CodeDeploy to call AWS services such as Auto Scaling on your behalf"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = ""
+        Principal = {
+          Service = "codedeploy.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+
+# attach CodeDeployServiceRole and policy
+resource "aws_iam_role_policy_attachment" "CodeDeployRolePolicy_Attach" {
+  role       = aws_iam_role.CodeDeployServiceRole.name
+  policy_arn = arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+}
+
+
+resource "aws_codedeploy_app" "csye6225_webapp" {
+  compute_platform = "Server"
+  name             = "csye6225-webapp"
+}
+
+resource "aws_codedeploy_deployment_config" "allatonce" {
+  deployment_config_name = "allatonce-deployment-config"
+
+  traffic_routing_config  {
+    type = "AllAtOnce"
+  }
+}
+
+resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
+  app_name              = aws_codedeploy_app.csye6225_webapp.name
+  deployment_group_name = "csye6225-webapp-deployment"
+  service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
+
+  ec2_tag_set {
+    ec2_tag_filter {
+      key   = "env"
+      type  = "KEY_AND_VALUE"
+      value = "codedeploy"
+    }
+  }
+
+  auto_rollback_configuration {
+    enabled = true
+    events  = ["DEPLOYMENT_FAILURE"]
+  }
 }
 
 # application security group
@@ -205,7 +434,7 @@ resource "aws_security_group" "database" {
 }
 
 # S3 bucket
-resource "aws_s3_bucket" "bucket" {
+resource "aws_s3_bucket" "object" {
   bucket = var.bucket_name
   acl    = "private"
 
@@ -244,7 +473,7 @@ resource "aws_db_subnet_group" "default" {
 
 resource "aws_iam_instance_profile" "app_profile" {
   name = "app_iam_profile"
-  role = aws_iam_role.role.name
+  role = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
 # RDS instance
@@ -301,13 +530,12 @@ Content-Transfer-Encoding: 7bit
 Content-Disposition: attachment; filename="userdata.txt"
 #!/bin/bash
 /bin/echo "Hello World" >> /home/ubuntu/testfile.txt
-/bin/mkdir /home/ubuntu/webapp
-/bin/echo 'HOSTNAME = ${aws_db_instance.db_instance.address}' > /home/ubuntu/webapp/.env
-/bin/echo 'RDS_USERNAME = ${aws_db_instance.db_instance.username}' >> /home/ubuntu/webapp/.env
-/bin/echo 'RDS_PASSWORD = ${var.password}' >> /home/ubuntu/webapp/.env
-/bin/echo 'RDS_DATABASE = ${aws_db_instance.db_instance.name}' >> /home/ubuntu/webapp/.env
-/bin/echo 'RDS_PORT = ${aws_db_instance.db_instance.port}' >> /home/ubuntu/webapp/.env
-/bin/echo 'BUCKET_NAME = ${aws_s3_bucket.bucket.id}' >> /home/ubuntu/webapp/.env
+/bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /home/ubuntu/.bashrc
+/bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /home/ubuntu/.bashrc
+/bin/echo RDS_PASSWORD=${var.password} >> /home/ubuntu/.bashrc
+/bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /home/ubuntu/.bashrc
+/bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /home/ubuntu/.bashrc
+/bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /home/ubuntu/.bashrc
 --//
 EOF
 }
