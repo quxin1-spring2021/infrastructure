@@ -104,8 +104,8 @@ resource "aws_iam_policy" "webapp_s3_policy" {
             ],
             "Effect": "Allow",
             "Resource": [
-                "arn:aws:s3:::webapp.xin.qu",
-                "arn:aws:s3:::webapp.xin.qu/*"
+                "arn:aws:s3:::${aws_s3_bucket.object.id}",
+                "arn:aws:s3:::${aws_s3_bucket.object.id}/*"
             ]
         }
     ]
@@ -155,8 +155,8 @@ resource "aws_iam_policy" "GH_Upload_To_S3" {
                 "s3:List*"
             ],
             "Resource": [
-                "arn:aws:s3:::${aws_s3_bucket.object.id}",
-                "arn:aws:s3:::${aws_s3_bucket.object.id}/*"
+                "arn:aws:s3:::codedeploy.webapp.xin.qu",
+                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
             ]
         }
     ]
@@ -486,7 +486,7 @@ resource "aws_db_instance" "db_instance" {
   identifier           = "csye6225"
   name                 = "csye6225"
   username             = "csye6225"
-  password             = "${var.password}"
+  password             = var.password
   multi_az             = false
   publicly_accessible  = false
   skip_final_snapshot  = true
