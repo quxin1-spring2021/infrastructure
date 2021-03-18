@@ -163,6 +163,9 @@ resource "aws_iam_policy" "GH_Upload_To_S3" {
 })
 }
 
+data "aws_caller_identity" "current" {}
+
+
 # Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances.
 resource "aws_iam_policy" "GH_Code_Deploy" {
   name        = "GH-Code-Deploy"
@@ -179,7 +182,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
                 "codedeploy:GetApplicationRevision",
                 "codedeploy:RegisterApplicationRevision"
             ],
-            "Resource": "arn:aws:codedeploy:${var.vpc_region}:973459261718:application:${aws_codedeploy_app.csye6225_webapp.name}"
+            "Resource": "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:application:${aws_codedeploy_app.csye6225_webapp.name}"
         },
         {
             "Effect": "Allow",
@@ -195,9 +198,9 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
                 "codedeploy:GetDeploymentConfig"
             ],
             "Resource": [
-                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.OneAtATime",
-                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.HalfAtATime",
-                "arn:aws:codedeploy:${var.vpc_region}:973459261718:deploymentconfig:CodeDeployDefault.AllAtOnce"
+                "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:deploymentconfig:CodeDeployDefault.OneAtATime",
+                "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:deploymentconfig:CodeDeployDefault.HalfAtATime",
+                "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:deploymentconfig:CodeDeployDefault.AllAtOnce"
             ]
         }
     ]
@@ -470,7 +473,7 @@ resource "aws_db_subnet_group" "default" {
 }
 
 resource "aws_iam_instance_profile" "app_profile" {
-  name = "app_iam_profile"
+  name = "app_iam_ec2_profile"
   role = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
@@ -483,7 +486,7 @@ resource "aws_db_instance" "db_instance" {
   identifier           = "csye6225"
   name                 = "csye6225"
   username             = "csye6225"
-  password             = "Crazy97021^"
+  password             = "${var.password}"
   multi_az             = false
   publicly_accessible  = false
   skip_final_snapshot  = true
@@ -508,6 +511,7 @@ resource "aws_instance" "webapp" {
 
   tags = {
     Name = "EC2-WebApplication"
+    env = "codedeploy"
   }
 
   user_data =  <<EOF
@@ -528,12 +532,12 @@ Content-Transfer-Encoding: 7bit
 Content-Disposition: attachment; filename="userdata.txt"
 #!/bin/bash
 /bin/echo "Hello World" >> /home/ubuntu/testfile.txt
-/bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /home/ubuntu/.bashrc
-/bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /home/ubuntu/.bashrc
-/bin/echo RDS_PASSWORD=${var.password} >> /home/ubuntu/.bashrc
-/bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /home/ubuntu/.bashrc
-/bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /home/ubuntu/.bashrc
-/bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /home/ubuntu/.bashrc
+/bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
+/bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
+/bin/echo RDS_PASSWORD=${var.password} >> /etc/environment
+/bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
+/bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
+/bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
 --//
 EOF
 }
