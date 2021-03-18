@@ -51,7 +51,6 @@ variable "password" {
 
 variable "ami" {
   type = string
-  default = "ami-0daa8070ba5c0d47c"
 }
 
 variable "bucket_name" {
