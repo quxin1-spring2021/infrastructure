@@ -129,8 +129,8 @@ resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
             ],
             "Effect": "Allow",
             "Resource": [
-                "arn:aws:s3:::codedeploy.webapp.xin.qu",
-                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
+                "arn:aws:s3:::codedeploy.webapp.${var.run_profile}.xin.qu",
+                "arn:aws:s3:::codedeploy.webapp.${var.run_profile}.xin.qu/*"
             ]
         }
     ]
@@ -155,8 +155,8 @@ resource "aws_iam_policy" "GH_Upload_To_S3" {
                 "s3:List*"
             ],
             "Resource": [
-                "arn:aws:s3:::codedeploy.webapp.xin.qu",
-                "arn:aws:s3:::codedeploy.webapp.xin.qu/*"
+                "arn:aws:s3:::codedeploy.webapp.${var.run_profile}.xin.qu",
+                "arn:aws:s3:::codedeploy.webapp.${var.run_profile}.xin.qu/*"
             ]
         }
     ]
@@ -353,6 +353,11 @@ resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
   deployment_config_name = "CodeDeployDefault.AllAtOnce"
   deployment_group_name = "csye6225-webapp-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
+
+  deployment_style {
+    deployment_option = "WITHOUT_TRAFFIC_CONTROL"
+    deployment_type = "IN_PLACE"
+  }
 
   ec2_tag_set {
     ec2_tag_filter {
