@@ -260,6 +260,12 @@ resource "aws_iam_role_policy_attachment" "CodeDeployEC2RolePolicy_Attach" {
   policy_arn = aws_iam_policy.CodeDeploy_EC2_S3.arn
 }
 
+resource "aws_iam_role_policy_attachment" "CloudWatchAgent_Attach" {
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
+}
+
+
 
 # create CodeDeployServiceRole IAM Role
 resource "aws_iam_role" "CodeDeployServiceRole" {
@@ -295,22 +301,29 @@ resource "aws_codedeploy_app" "csye6225_webapp" {
 
 resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
   app_name              = aws_codedeploy_app.csye6225_webapp.name
-  deployment_config_name = "CodeDeployDefault.AllAtOnce"
+  deployment_config_name = "CodeDeployDefault.OneAtATime"
   deployment_group_name = "csye6225-webapp-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
 
   deployment_style {
-    deployment_option = "WITHOUT_TRAFFIC_CONTROL"
+    deployment_option = "WITH_TRAFFIC_CONTROL"
     deployment_type = "IN_PLACE"
   }
 
-  ec2_tag_set {
-    ec2_tag_filter {
-      key   = "env"
-      type  = "KEY_AND_VALUE"
-      value = "codedeploy"
-    }
+load_balancer_info {
+      target_group_info {
+        name = aws_lb_target_group.target_group.name
+      }
   }
+  # ec2_tag_set {
+  #   ec2_tag_filter {
+  #     key   = "env"
+  #     type  = "KEY_AND_VALUE"
+  #     value = "codedeploy"
+  #   }
+  # }
+
+  autoscaling_groups = [aws_autoscaling_group.asg.name]
 
   auto_rollback_configuration {
     enabled = true
@@ -325,31 +338,19 @@ resource "aws_security_group" "application" {
   vpc_id      = aws_vpc.my_vpc.id
 
   ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
+    description = "For Health Checks from Load Balancer."
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.loadBalancer.id]
   }
 
   ingress {
+    description = "Listener for Load Balancer."
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    security_groups = [aws_security_group.loadBalancer.id]
   }
 
   egress {
@@ -383,6 +384,58 @@ resource "aws_security_group" "database" {
   }
 
 }
+
+resource "aws_security_group" "loadBalancer" {
+  name        = "LBSecurityGroup"
+  description = "EC2 security group for load balancer."
+  vpc_id      = aws_vpc.my_vpc.id
+
+
+  ingress {
+    description = "Allow access from anywhere."
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # egress {
+  #   description = "To Instance Listener."
+  #   from_port   = 8080
+  #   to_port     = 8080
+  #   protocol    = "tcp"
+  #   security_groups = [aws_security_group.application.id]
+  # }
+
+  # egress {
+  #   description = "To Instance Health Checks."
+  #   from_port   = 80
+  #   to_port     = 80
+  #   protocol    = "tcp"
+  #   security_groups = [aws_security_group.application.id]
+  # }
+}
+
+resource "aws_security_group_rule" "webapp" {
+  description = "To Instance Health Checks."
+  type              = "egress"
+  from_port         = 8080
+  to_port           = 8080
+  protocol          = "tcp"
+  source_security_group_id = aws_security_group.application.id
+  security_group_id = aws_security_group.loadBalancer.id
+}
+
+resource "aws_security_group_rule" "health_check" {
+  description = "To Instance Listener."
+  type              = "egress"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  source_security_group_id = aws_security_group.application.id
+  security_group_id = aws_security_group.loadBalancer.id
+}
+
 
 # S3 bucket
 resource "aws_s3_bucket" "object" {
@@ -446,56 +499,233 @@ resource "aws_db_instance" "db_instance" {
 
 # EC2 instance
 
-resource "aws_instance" "webapp" {
-  ami           = var.ami
-  instance_type = "t2.micro"
-  key_name = "csye6225_2021spring"
-  vpc_security_group_ids = [aws_security_group.application.id]
-  iam_instance_profile = aws_iam_instance_profile.app_profile.id
-  subnet_id = aws_subnet.subnet01.id
-  root_block_device {
-    volume_size = 20
-    volume_type = "gp2"
-    delete_on_termination = true
-  }
+# resource "aws_instance" "webapp" {
+#   ami           = var.ami
+#   instance_type = "t2.micro"
+#   key_name = "csye6225_2021spring"
+#   vpc_security_group_ids = [aws_security_group.application.id]
+#   iam_instance_profile = aws_iam_instance_profile.app_profile.id
+#   subnet_id = aws_subnet.subnet01.id
+#   root_block_device {
+#     volume_size = 20
+#     volume_type = "gp2"
+#     delete_on_termination = true
+#   }
 
-  tags = {
-    Name = "EC2-WebApplication"
-    env = "codedeploy"
-  }
+#   tags = {
+#     Name = "EC2-WebApplication"
+#     env = "codedeploy"
+#   }
 
-  user_data =  <<EOF
-Content-Type: multipart/mixed; boundary="//"
-MIME-Version: 1.0
---//
-Content-Type: text/cloud-config; charset="us-ascii"
-MIME-Version: 1.0
-Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="cloud-config.txt"
-#cloud-config
-cloud_final_modules:
-- [scripts-user, always]
---//
-Content-Type: text/x-shellscript; charset="us-ascii"
-MIME-Version: 1.0
-Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="userdata.txt"
-#!/bin/bash
-/bin/echo "Hello World" >> /home/ubuntu/testfile.txt
-/bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
-/bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
-/bin/echo RDS_PASSWORD=${var.password} >> /etc/environment
-/bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
-/bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
-/bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
---//
-EOF
-}
+#   user_data =  <<EOF
+# Content-Type: multipart/mixed; boundary="//"
+# MIME-Version: 1.0
+# --//
+# Content-Type: text/cloud-config; charset="us-ascii"
+# MIME-Version: 1.0
+# Content-Transfer-Encoding: 7bit
+# Content-Disposition: attachment; filename="cloud-config.txt"
+# #cloud-config
+# cloud_final_modules:
+# - [scripts-user, always]
+# --//
+# Content-Type: text/x-shellscript; charset="us-ascii"
+# MIME-Version: 1.0
+# Content-Transfer-Encoding: 7bit
+# Content-Disposition: attachment; filename="userdata.txt"
+# #!/bin/bash
+# /bin/echo "Hello World" >> /home/ubuntu/testfile.txt
+# /bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
+# /bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
+# /bin/echo RDS_PASSWORD=${var.password} >> /etc/environment
+# /bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
+# /bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
+# /bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
+# --//
+# EOF
+# }
 
 resource "aws_route53_record" "webapp" {
-  zone_id = "Z06188442KAEZYTY2ORM4"
+  zone_id = var.run_profile == "prod" ? "Z0618647372SM5AHYPKSG": "Z06188442KAEZYTY2ORM4"
   name    = "${var.run_profile}.chuhsin.me"
   type    = "A"
-  ttl     = "60"
-  records = [aws_instance.webapp.public_ip]
+
+  alias {
+    name                   = aws_lb.load_balancer.dns_name
+    zone_id                = aws_lb.load_balancer.zone_id
+    evaluate_target_health = true
+  }
+  }
+
+# Launch Configurations
+resource "aws_launch_configuration" "as_conf" {
+  name   = "TR-DEMO-LC-1"
+  image_id      = var.ami
+  instance_type = "t2.micro"
+  security_groups = [aws_security_group.application.id]
+  iam_instance_profile = aws_iam_instance_profile.app_profile.id
+  key_name = "csye6225_2021spring"
+  user_data =  <<EOF
+#!/bin/bash
+echo "Hello World" >> /home/ubuntu/testfile.txt
+echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
+echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
+echo RDS_PASSWORD=${var.password} >> /etc/environment
+echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
+echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
+echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
+  EOF
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Auto Scaling Groups 
+resource "aws_autoscaling_group" "asg" {
+  name                 = "TR-DEMO-ASG"
+  launch_configuration = aws_launch_configuration.as_conf.name
+  min_size             = 3
+  max_size             = 5
+  desired_capacity     = 3
+  health_check_grace_period = 300
+  health_check_type         = "EC2"
+  vpc_zone_identifier = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
+  target_group_arns = [aws_lb_target_group.target_group.arn]
+
+  tag {
+    key                 = "autoscaling"
+    value               = "true"
+    propagate_at_launch = true
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_autoscaling_policy" "web_policy_down" {
+  name = "web_policy_down"
+  scaling_adjustment = -1
+  adjustment_type = "ChangeInCapacity"
+  cooldown = 240
+  autoscaling_group_name = aws_autoscaling_group.asg.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
+  alarm_name = "web_cpu_alarm_down"
+  comparison_operator = "LessThanOrEqualToThreshold"
+  evaluation_periods = "1"
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = "60"
+  statistic = "Average"
+  threshold = "3"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.asg.name
+  }
+
+  alarm_description = "This metric monitor EC2 instance CPU utilization"
+  alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
+}
+
+resource "aws_autoscaling_policy" "web_policy_up" {
+  name = "web_policy_up"
+  scaling_adjustment = 1
+  adjustment_type = "ChangeInCapacity"
+  cooldown = 240
+  autoscaling_group_name = aws_autoscaling_group.asg.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
+  alarm_name = "web_cpu_alarm_up"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = "1"
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = "60"
+  statistic = "Average"
+  threshold = "5"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.asg.name
+  }
+
+  alarm_description = "This metric monitor EC2 instance CPU utilization"
+  alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
+}
+
+# Auto Scaling Plan
+# resource "aws_autoscalingplans_scaling_plan" "example" {
+#   name = "example-dynamic-cost-optimization"
+
+#   application_source {
+#     tag_filter {
+#       key    = "autoscaling"
+#       values = ["true"]
+#     }
+#   }
+
+#   scaling_instruction {
+#     max_capacity       = 5
+#     min_capacity       = 3
+#     resource_id        = format("autoScalingGroup/%s", aws_autoscaling_group.asg.name)
+#     scalable_dimension = "autoscaling:autoScalingGroup:DesiredCapacity"
+#     service_namespace  = "autoscaling"
+
+#     target_tracking_configuration {
+#       predefined_scaling_metric_specification {
+#         predefined_scaling_metric_type = "ASGAverageCPUUtilization"
+#       }
+#       target_value = 30
+#     }
+#   }
+# }
+
+# Targets Group
+resource "aws_lb_target_group" "target_group" {
+  name     = "TF-DEMO-TG-2"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.my_vpc.id
+}
+
+# Load Balancers
+resource "aws_lb" "load_balancer" {
+  name               = "TF-LB"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.loadBalancer.id]
+  subnets            = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
+
+
+  tags = {
+    Environment = "production"
+  }
+}
+
+# Load Balancers and Targets Group Attachment
+# resource "aws_lb_target_group_attachment" "test" {
+#   target_group_arn = aws_lb_target_group.target_group.arn
+#   target_id        = aws_instance.test.id
+#   port             = 80
+# }
+
+# Load Balancer Listener Foward to Targets Group
+resource "aws_lb_listener" "front_end" {
+  load_balancer_arn = aws_lb.load_balancer.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.target_group.arn
+  }
+}
+
+# Create a new ALB Target Group attachment
+resource "aws_autoscaling_attachment" "asg_attachment_bar" {
+  autoscaling_group_name = aws_autoscaling_group.asg.id
+  alb_target_group_arn   = aws_lb_target_group.target_group.arn
 }
