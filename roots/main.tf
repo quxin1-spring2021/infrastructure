@@ -310,7 +310,7 @@ resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
     deployment_type = "IN_PLACE"
   }
 
-load_balancer_info {
+  load_balancer_info {
       target_group_info {
         name = aws_lb_target_group.target_group.name
       }
@@ -615,10 +615,10 @@ resource "aws_autoscaling_policy" "web_policy_down" {
 resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
   alarm_name = "web_cpu_alarm_down"
   comparison_operator = "LessThanOrEqualToThreshold"
-  evaluation_periods = "1"
+  evaluation_periods = "2"
   metric_name = "CPUUtilization"
   namespace = "AWS/EC2"
-  period = "60"
+  period = "120"
   statistic = "Average"
   threshold = "3"
 
@@ -641,10 +641,10 @@ resource "aws_autoscaling_policy" "web_policy_up" {
 resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
   alarm_name = "web_cpu_alarm_up"
   comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods = "1"
+  evaluation_periods = "2"
   metric_name = "CPUUtilization"
   namespace = "AWS/EC2"
-  period = "60"
+  period = "120"
   statistic = "Average"
   threshold = "5"
 
