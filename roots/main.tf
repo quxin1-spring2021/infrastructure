@@ -4,6 +4,16 @@ provider "aws" {
   profile = var.run_profile
 }
 
+data "archive_file" "dummy" {
+  type = "zip"
+  output_path = "./lambda_function_payload.zip"
+
+  source {
+    content = "hello"
+    filename = "dummy.txt"
+  }
+}
+
 
 # create vpc
 resource "aws_vpc" "my_vpc" {
@@ -207,7 +217,29 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
 })
 }
 
-# Policy allows EC2 instances to read data from S3 buckets. 
+# Policy allows EC2 instances to publish to SNS topics
+resource "aws_iam_policy" "Publish_to_SNS" {
+  name        = "EC2-Publish-to-SNS"
+  description = "Permissions for EC2 instances to publish messages to SNS."
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode( {
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+    "Sid":"AllowPublishToMyTopic",
+    "Effect":"Allow",
+    "Action":"sns:Publish",
+    "Resource": [
+      aws_sns_topic.book_create.arn,
+      aws_sns_topic.book_delete.arn,
+    ]
+  }
+  ]
+})
+}
+
 
 
 # create IAM User
@@ -265,6 +297,10 @@ resource "aws_iam_role_policy_attachment" "CloudWatchAgent_Attach" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
+resource "aws_iam_role_policy_attachment" "SNS" {
+  role       = aws_iam_role.CodeDeployEC2ServiceRole.name
+  policy_arn = aws_iam_policy.Publish_to_SNS.arn
+}
 
 
 # create CodeDeployServiceRole IAM Role
@@ -485,7 +521,7 @@ resource "aws_db_instance" "db_instance" {
   allocated_storage    = 20
   engine               = "mysql"
   engine_version       = "8.0.20"
-  instance_class       = "db.t3.micro"
+  instance_class       = "db.t2.micro"
   identifier           = "csye6225"
   name                 = "csye6225"
   username             = "csye6225"
@@ -496,6 +532,270 @@ resource "aws_db_instance" "db_instance" {
   vpc_security_group_ids = [aws_security_group.database.id]
   db_subnet_group_name = aws_db_subnet_group.default.name
 }
+
+
+resource "aws_route53_record" "webapp" {
+  zone_id = var.run_profile == "prod" ? "Z0618647372SM5AHYPKSG": "Z06188442KAEZYTY2ORM4"
+  name    = "${var.run_profile}.chuhsin.me"
+  type    = "A"
+
+  alias {
+    name                   = aws_lb.load_balancer.dns_name
+    zone_id                = aws_lb.load_balancer.zone_id
+    evaluate_target_health = true
+  }
+  }
+
+# Launch Configurations
+resource "aws_launch_configuration" "as_conf" {
+  name   = "TR-DEMO-LC-1"
+  image_id      = var.ami
+  instance_type = "t2.micro"
+  security_groups = [aws_security_group.application.id]
+  iam_instance_profile = aws_iam_instance_profile.app_profile.id
+  key_name = "csye6225_2021spring"
+  user_data =  <<EOF
+#!/bin/bash
+echo "Hello World" >> /home/ubuntu/testfile.txt
+echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
+echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
+echo RDS_PASSWORD=${var.password} >> /etc/environment
+echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
+echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
+echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
+echo TOPIC_DELETE=${aws_sns_topic.book_delete.arn} >> /etc/environment
+echo TOPIC_CREATE=${aws_sns_topic.book_create.arn} >> /etc/environment
+  EOF
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# Auto Scaling Groups 
+resource "aws_autoscaling_group" "asg" {
+  name                 = "TR-DEMO-ASG"
+  launch_configuration = aws_launch_configuration.as_conf.name
+  min_size             = 1
+  max_size             = 1
+  desired_capacity     = 1
+  health_check_grace_period = 500
+  default_cooldown = 500
+  health_check_type         = "EC2"
+  vpc_zone_identifier = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
+  target_group_arns = [aws_lb_target_group.target_group.arn]
+
+  tag {
+    key                 = "autoscaling"
+    value               = "true"
+    propagate_at_launch = true
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+# resource "aws_autoscaling_policy" "web_policy_down" {
+#   name = "web_policy_down"
+#   scaling_adjustment = -1
+#   adjustment_type = "ChangeInCapacity"
+#   cooldown = 600
+#   autoscaling_group_name = aws_autoscaling_group.asg.name
+# }
+
+# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
+#   alarm_name = "web_cpu_alarm_down"
+#   comparison_operator = "LessThanOrEqualToThreshold"
+#   evaluation_periods = "5"
+#   metric_name = "CPUUtilization"
+#   namespace = "AWS/EC2"
+#   period = "120"
+#   statistic = "Average"
+#   threshold = "3"
+
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.asg.name
+#   }
+
+#   alarm_description = "This metric monitor EC2 instance CPU utilization"
+#   alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
+# }
+
+# resource "aws_autoscaling_policy" "web_policy_up" {
+#   name = "web_policy_up"
+#   scaling_adjustment = 1
+#   adjustment_type = "ChangeInCapacity"
+#   cooldown = 500
+#   autoscaling_group_name = aws_autoscaling_group.asg.name
+# }
+
+# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
+#   alarm_name = "web_cpu_alarm_up"
+#   comparison_operator = "GreaterThanOrEqualToThreshold"
+#   evaluation_periods = "3"
+#   metric_name = "CPUUtilization"
+#   namespace = "AWS/EC2"
+#   period = "120"
+#   statistic = "Average"
+#   threshold = "5"
+
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.asg.name
+#   }
+
+#   alarm_description = "This metric monitor EC2 instance CPU utilization"
+#   alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
+# }
+
+# Targets Group
+resource "aws_lb_target_group" "target_group" {
+  name     = "TF-DEMO-TG"
+  port     = 8080
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.my_vpc.id
+  deregistration_delay = 30
+  health_check {
+    interval = 10
+    healthy_threshold = 2
+  }
+
+}
+
+# Load Balancers
+resource "aws_lb" "load_balancer" {
+  name               = "TF-LB"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.loadBalancer.id]
+  subnets            = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
+
+
+  tags = {
+    Environment = "production"
+  }
+}
+
+
+# Load Balancer Listener Foward to Targets Group
+resource "aws_lb_listener" "front_end" {
+  load_balancer_arn = aws_lb.load_balancer.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.target_group.arn
+  }
+}
+
+# Create a new ALB Target Group attachment
+resource "aws_autoscaling_attachment" "asg_attachment_bar" {
+  autoscaling_group_name = aws_autoscaling_group.asg.id
+  alb_target_group_arn   = aws_lb_target_group.target_group.arn
+}
+
+#########################################################
+
+# Lambda System
+resource "aws_iam_role" "iam_for_lambda" {
+  name = "iam_for_lambda"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = ""
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+
+resource "aws_iam_policy" "lambda_log_policy" {
+  name        = "Lambda-Log-Policy"
+  description = "Permission for Lambda Function to Create Logs"
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "ses:SendEmail",
+                "ses:SendRawEmail"
+            ],
+            "Resource": "*"
+        }
+    ]
+})
+}
+
+resource "aws_iam_role_policy_attachment" "lambda" {
+  role       = aws_iam_role.iam_for_lambda.name
+  policy_arn = aws_iam_policy.lambda_log_policy.arn
+}
+
+resource "aws_lambda_function" "lambda_function" {
+  filename = data.archive_file.dummy.output_path
+  function_name = "lambda_sns_function"
+  role          = aws_iam_role.iam_for_lambda.arn
+  handler       = "index.handler"
+
+  runtime = "nodejs14.x"
+
+  environment {
+    variables = {
+      ACCOUNT = var.run_profile
+    }
+  }
+}
+
+resource "aws_sns_topic" "book_create" {
+  name = "demo-book-created"
+}
+
+resource "aws_sns_topic" "book_delete" {
+  name = "demo-book-deleted"
+}
+
+resource "aws_sns_topic_subscription" "book_created_lambda_target" {
+  topic_arn = aws_sns_topic.book_create.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.lambda_function.arn
+}
+
+resource "aws_sns_topic_subscription" "book_deleted_lambda_target" {
+  topic_arn = aws_sns_topic.book_delete.arn
+  protocol  = "lambda"
+  endpoint  = aws_lambda_function.lambda_function.arn
+}
+
+resource "aws_lambda_permission" "with_sns_create" {
+  statement_id  = "AllowExecutionFromSNSCreate"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lambda_function.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.book_create.arn
+}
+
+resource "aws_lambda_permission" "with_sns_delete" {
+  statement_id  = "AllowExecutionFromSNSDelete"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.lambda_function.function_name
+  principal     = "sns.amazonaws.com"
+  source_arn    = aws_sns_topic.book_delete.arn
+}
+
+
 
 # EC2 instance
 
@@ -544,188 +844,3 @@ resource "aws_db_instance" "db_instance" {
 # --//
 # EOF
 # }
-
-resource "aws_route53_record" "webapp" {
-  zone_id = var.run_profile == "prod" ? "Z0618647372SM5AHYPKSG": "Z06188442KAEZYTY2ORM4"
-  name    = "${var.run_profile}.chuhsin.me"
-  type    = "A"
-
-  alias {
-    name                   = aws_lb.load_balancer.dns_name
-    zone_id                = aws_lb.load_balancer.zone_id
-    evaluate_target_health = true
-  }
-  }
-
-# Launch Configurations
-resource "aws_launch_configuration" "as_conf" {
-  name   = "TR-DEMO-LC-1"
-  image_id      = var.ami
-  instance_type = "t2.micro"
-  security_groups = [aws_security_group.application.id]
-  iam_instance_profile = aws_iam_instance_profile.app_profile.id
-  key_name = "csye6225_2021spring"
-  user_data =  <<EOF
-#!/bin/bash
-echo "Hello World" >> /home/ubuntu/testfile.txt
-echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
-echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
-echo RDS_PASSWORD=${var.password} >> /etc/environment
-echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
-echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
-echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
-  EOF
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-# Auto Scaling Groups 
-resource "aws_autoscaling_group" "asg" {
-  name                 = "TR-DEMO-ASG"
-  launch_configuration = aws_launch_configuration.as_conf.name
-  min_size             = 3
-  max_size             = 5
-  desired_capacity     = 3
-  health_check_grace_period = 300
-  health_check_type         = "EC2"
-  vpc_zone_identifier = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
-  target_group_arns = [aws_lb_target_group.target_group.arn]
-
-  tag {
-    key                 = "autoscaling"
-    value               = "true"
-    propagate_at_launch = true
-  }
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_autoscaling_policy" "web_policy_down" {
-  name = "web_policy_down"
-  scaling_adjustment = -1
-  adjustment_type = "ChangeInCapacity"
-  cooldown = 240
-  autoscaling_group_name = aws_autoscaling_group.asg.name
-}
-
-resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
-  alarm_name = "web_cpu_alarm_down"
-  comparison_operator = "LessThanOrEqualToThreshold"
-  evaluation_periods = "2"
-  metric_name = "CPUUtilization"
-  namespace = "AWS/EC2"
-  period = "120"
-  statistic = "Average"
-  threshold = "3"
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.asg.name
-  }
-
-  alarm_description = "This metric monitor EC2 instance CPU utilization"
-  alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
-}
-
-resource "aws_autoscaling_policy" "web_policy_up" {
-  name = "web_policy_up"
-  scaling_adjustment = 1
-  adjustment_type = "ChangeInCapacity"
-  cooldown = 240
-  autoscaling_group_name = aws_autoscaling_group.asg.name
-}
-
-resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
-  alarm_name = "web_cpu_alarm_up"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods = "2"
-  metric_name = "CPUUtilization"
-  namespace = "AWS/EC2"
-  period = "120"
-  statistic = "Average"
-  threshold = "5"
-
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.asg.name
-  }
-
-  alarm_description = "This metric monitor EC2 instance CPU utilization"
-  alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
-}
-
-# Auto Scaling Plan
-# resource "aws_autoscalingplans_scaling_plan" "example" {
-#   name = "example-dynamic-cost-optimization"
-
-#   application_source {
-#     tag_filter {
-#       key    = "autoscaling"
-#       values = ["true"]
-#     }
-#   }
-
-#   scaling_instruction {
-#     max_capacity       = 5
-#     min_capacity       = 3
-#     resource_id        = format("autoScalingGroup/%s", aws_autoscaling_group.asg.name)
-#     scalable_dimension = "autoscaling:autoScalingGroup:DesiredCapacity"
-#     service_namespace  = "autoscaling"
-
-#     target_tracking_configuration {
-#       predefined_scaling_metric_specification {
-#         predefined_scaling_metric_type = "ASGAverageCPUUtilization"
-#       }
-#       target_value = 30
-#     }
-#   }
-# }
-
-# Targets Group
-resource "aws_lb_target_group" "target_group" {
-  name     = "TF-DEMO-TG-2"
-  port     = 8080
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.my_vpc.id
-}
-
-# Load Balancers
-resource "aws_lb" "load_balancer" {
-  name               = "TF-LB"
-  internal           = false
-  load_balancer_type = "application"
-  security_groups    = [aws_security_group.loadBalancer.id]
-  subnets            = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
-
-
-  tags = {
-    Environment = "production"
-  }
-}
-
-# Load Balancers and Targets Group Attachment
-# resource "aws_lb_target_group_attachment" "test" {
-#   target_group_arn = aws_lb_target_group.target_group.arn
-#   target_id        = aws_instance.test.id
-#   port             = 80
-# }
-
-# Load Balancer Listener Foward to Targets Group
-resource "aws_lb_listener" "front_end" {
-  load_balancer_arn = aws_lb.load_balancer.arn
-  port              = "80"
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.target_group.arn
-  }
-}
-
-# Create a new ALB Target Group attachment
-resource "aws_autoscaling_attachment" "asg_attachment_bar" {
-  autoscaling_group_name = aws_autoscaling_group.asg.id
-  alb_target_group_arn   = aws_lb_target_group.target_group.arn
-}
