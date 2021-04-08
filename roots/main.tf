@@ -328,12 +328,40 @@ resource "aws_iam_role_policy_attachment" "CodeDeployRolePolicy_Attach" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
 }
 
+# create CodeDeployServiceRoleLambda IAM Role
+resource "aws_iam_role" "CodeDeployServiceRoleLambda" {
+  name = "CodeDeployServiceRoleLambda"
+  description = "Allows CodeDeploy to call AWS services such as Auto Scaling on your behalf"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Sid    = ""
+        Principal = {
+          Service = "codedeploy.amazonaws.com"
+        }
+      },
+    ]
+  })
+}
+
+# attach CodeDeployServiceRoleLambda and policy
+resource "aws_iam_role_policy_attachment" "CodeDeployRoleLambdaPolicy_Attach" {
+  role       = aws_iam_role.CodeDeployServiceRoleLambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda"
+}
+
+resource "aws_iam_role_policy_attachment" "CodeDeployRoleLambdaPolicyS3_Attach" {
+  role       = aws_iam_role.CodeDeployServiceRoleLambda.name
+  policy_arn = aws_iam_policy.CodeDeploy_EC2_S3.arn
+}
 
 resource "aws_codedeploy_app" "csye6225_webapp" {
   compute_platform = "Server"
   name             = "csye6225-webapp"
 }
-
 
 resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
   app_name              = aws_codedeploy_app.csye6225_webapp.name
@@ -365,6 +393,24 @@ resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
     enabled = true
     events  = ["DEPLOYMENT_FAILURE"]
   }
+}
+
+resource "aws_codedeploy_app" "csye6225_lambda" {
+  compute_platform = "Lambda"
+  name             = "csye6225-lambda"
+}
+
+resource "aws_codedeploy_deployment_group" "csye6225_lambda_deployment" {
+  app_name              = aws_codedeploy_app.csye6225_lambda.name
+  deployment_config_name = "CodeDeployDefault.LambdaAllAtOnce"
+  deployment_group_name = "csye6225-lambda-deployment"
+  service_role_arn      = aws_iam_role.CodeDeployServiceRoleLambda.arn
+
+    deployment_style {
+    deployment_option = "WITH_TRAFFIC_CONTROL"
+    deployment_type = "BLUE_GREEN"
+  }
+
 }
 
 # application security group
@@ -565,6 +611,7 @@ echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
 echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
 echo TOPIC_DELETE=${aws_sns_topic.book_delete.arn} >> /etc/environment
 echo TOPIC_CREATE=${aws_sns_topic.book_create.arn} >> /etc/environment
+echo run_profile=${var.run_profile} >> /etc/environment
   EOF
 
   lifecycle {
@@ -576,9 +623,9 @@ echo TOPIC_CREATE=${aws_sns_topic.book_create.arn} >> /etc/environment
 resource "aws_autoscaling_group" "asg" {
   name                 = "TR-DEMO-ASG"
   launch_configuration = aws_launch_configuration.as_conf.name
-  min_size             = 1
-  max_size             = 1
-  desired_capacity     = 1
+  min_size             = 3
+  max_size             = 5
+  desired_capacity     = 3
   health_check_grace_period = 500
   default_cooldown = 500
   health_check_type         = "EC2"
@@ -596,57 +643,57 @@ resource "aws_autoscaling_group" "asg" {
   }
 }
 
-# resource "aws_autoscaling_policy" "web_policy_down" {
-#   name = "web_policy_down"
-#   scaling_adjustment = -1
-#   adjustment_type = "ChangeInCapacity"
-#   cooldown = 600
-#   autoscaling_group_name = aws_autoscaling_group.asg.name
-# }
+resource "aws_autoscaling_policy" "web_policy_down" {
+  name = "web_policy_down"
+  scaling_adjustment = -1
+  adjustment_type = "ChangeInCapacity"
+  cooldown = 600
+  autoscaling_group_name = aws_autoscaling_group.asg.name
+}
 
-# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
-#   alarm_name = "web_cpu_alarm_down"
-#   comparison_operator = "LessThanOrEqualToThreshold"
-#   evaluation_periods = "5"
-#   metric_name = "CPUUtilization"
-#   namespace = "AWS/EC2"
-#   period = "120"
-#   statistic = "Average"
-#   threshold = "3"
+resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
+  alarm_name = "web_cpu_alarm_down"
+  comparison_operator = "LessThanOrEqualToThreshold"
+  evaluation_periods = "5"
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = "120"
+  statistic = "Average"
+  threshold = "3"
 
-#   dimensions = {
-#     AutoScalingGroupName = aws_autoscaling_group.asg.name
-#   }
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.asg.name
+  }
 
-#   alarm_description = "This metric monitor EC2 instance CPU utilization"
-#   alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
-# }
+  alarm_description = "This metric monitor EC2 instance CPU utilization"
+  alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
+}
 
-# resource "aws_autoscaling_policy" "web_policy_up" {
-#   name = "web_policy_up"
-#   scaling_adjustment = 1
-#   adjustment_type = "ChangeInCapacity"
-#   cooldown = 500
-#   autoscaling_group_name = aws_autoscaling_group.asg.name
-# }
+resource "aws_autoscaling_policy" "web_policy_up" {
+  name = "web_policy_up"
+  scaling_adjustment = 1
+  adjustment_type = "ChangeInCapacity"
+  cooldown = 500
+  autoscaling_group_name = aws_autoscaling_group.asg.name
+}
 
-# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
-#   alarm_name = "web_cpu_alarm_up"
-#   comparison_operator = "GreaterThanOrEqualToThreshold"
-#   evaluation_periods = "3"
-#   metric_name = "CPUUtilization"
-#   namespace = "AWS/EC2"
-#   period = "120"
-#   statistic = "Average"
-#   threshold = "5"
+resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
+  alarm_name = "web_cpu_alarm_up"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods = "3"
+  metric_name = "CPUUtilization"
+  namespace = "AWS/EC2"
+  period = "120"
+  statistic = "Average"
+  threshold = "5"
 
-#   dimensions = {
-#     AutoScalingGroupName = aws_autoscaling_group.asg.name
-#   }
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.asg.name
+  }
 
-#   alarm_description = "This metric monitor EC2 instance CPU utilization"
-#   alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
-# }
+  alarm_description = "This metric monitor EC2 instance CPU utilization"
+  alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
+}
 
 # Targets Group
 resource "aws_lb_target_group" "target_group" {
@@ -744,12 +791,17 @@ resource "aws_iam_role_policy_attachment" "lambda" {
   policy_arn = aws_iam_policy.lambda_log_policy.arn
 }
 
+resource "aws_iam_role_policy_attachment" "lambda_dynamoDB" {
+  role       = aws_iam_role.iam_for_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+}
+
 resource "aws_lambda_function" "lambda_function" {
   filename = data.archive_file.dummy.output_path
   function_name = "lambda_sns_function"
   role          = aws_iam_role.iam_for_lambda.arn
   handler       = "index.handler"
-
+  publish       = true
   runtime = "nodejs14.x"
 
   environment {
@@ -757,6 +809,14 @@ resource "aws_lambda_function" "lambda_function" {
       ACCOUNT = var.run_profile
     }
   }
+}
+
+resource "aws_lambda_alias" "lambda_alias" {
+  name             = "my_alias"
+  description      = "a sample description"
+  function_name    = aws_lambda_function.lambda_function.arn
+  function_version = aws_lambda_function.lambda_function.version
+
 }
 
 resource "aws_sns_topic" "book_create" {
@@ -770,19 +830,19 @@ resource "aws_sns_topic" "book_delete" {
 resource "aws_sns_topic_subscription" "book_created_lambda_target" {
   topic_arn = aws_sns_topic.book_create.arn
   protocol  = "lambda"
-  endpoint  = aws_lambda_function.lambda_function.arn
+  endpoint  = aws_lambda_alias.lambda_alias.arn
 }
 
 resource "aws_sns_topic_subscription" "book_deleted_lambda_target" {
   topic_arn = aws_sns_topic.book_delete.arn
   protocol  = "lambda"
-  endpoint  = aws_lambda_function.lambda_function.arn
+  endpoint  = aws_lambda_alias.lambda_alias.arn
 }
 
 resource "aws_lambda_permission" "with_sns_create" {
   statement_id  = "AllowExecutionFromSNSCreate"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_function.function_name
+  function_name = aws_lambda_alias.lambda_alias.arn
   principal     = "sns.amazonaws.com"
   source_arn    = aws_sns_topic.book_create.arn
 }
@@ -790,12 +850,28 @@ resource "aws_lambda_permission" "with_sns_create" {
 resource "aws_lambda_permission" "with_sns_delete" {
   statement_id  = "AllowExecutionFromSNSDelete"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.lambda_function.function_name
+  function_name = aws_lambda_alias.lambda_alias.arn
   principal     = "sns.amazonaws.com"
   source_arn    = aws_sns_topic.book_delete.arn
 }
 
+resource "aws_dynamodb_table" "basic-dynamodb-table" {
+  name           = "messages"
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 5
+  write_capacity = 5
+  hash_key       = "MessageID"
 
+  attribute {
+    name = "MessageID"
+    type = "S"
+  }
+
+  tags = {
+    Name        = "dynamodb-table-1"
+    Environment = "production"
+  }
+}
 
 # EC2 instance
 
