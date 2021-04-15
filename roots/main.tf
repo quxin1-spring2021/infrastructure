@@ -615,7 +615,7 @@ resource "aws_kms_key" "ebs" {
             "Sid": "Enable IAM User Permissions",
             "Effect": "Allow",
             "Principal": {
-                "AWS": data.aws_caller_identity.current.user_id
+                "AWS": [data.aws_caller_identity.current.user_id, "arn:aws:iam::798539279327:root"],
             },
             "Action": [
                       "kms:Create*",
@@ -638,7 +638,7 @@ resource "aws_kms_key" "ebs" {
         "Effect": "Allow",
         "Principal": {
             "AWS": [
-                "arn:aws:iam::973459261718:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
             ]
         },
         "Action": [
@@ -655,7 +655,7 @@ resource "aws_kms_key" "ebs" {
         "Effect": "Allow",
         "Principal": {
             "AWS": [
-                "arn:aws:iam::973459261718:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
             ]
         },
         "Action": [
