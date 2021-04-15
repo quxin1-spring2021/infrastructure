@@ -122,6 +122,40 @@ resource "aws_iam_policy" "webapp_s3_policy" {
 })
 }
 
+
+
+
+# create IAM policy
+resource "aws_iam_policy" "webapp_kms_policy" {
+  name        = "WebApp-KMS-Demo"
+  description = "Permissions for the KMS to create secure policies."
+
+  # Terraform's "jsonencode" function converts a
+  # Terraform expression result to valid JSON syntax.
+  policy = jsonencode({
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "kms:Decrypt",
+                "kms:Encrypt",
+                "kms:RevokeGrant",
+                "kms:GenerateDataKey",
+                "kms:GenerateDataKeyWithoutPlaintext",
+                "kms:DescribeKey",
+                "kms:CreateGrant",
+                "kms:ListGrants"
+            ],
+            "Effect": "Allow",
+            "Resource": [
+                aws_kms_key.ebs.arn,
+                aws_kms_key.rds.arn
+            ]
+        }
+    ]
+})
+}
+
 # Policy allows EC2 instances to read data from S3 buckets. 
 resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
   name        = "CodeDeploy-EC2-S3"
@@ -296,6 +330,11 @@ resource "aws_iam_role_policy_attachment" "CloudWatchAgent_Attach" {
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
+
+# resource "aws_iam_role_policy_attachment" "KMS_Attach" {
+#   role       = "arn:aws:iam::973459261718:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+#   policy_arn = aws_iam_policy.webapp_kms_policy.arn
+# }
 
 resource "aws_iam_role_policy_attachment" "SNS" {
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
@@ -564,14 +603,79 @@ resource "aws_iam_instance_profile" "app_profile" {
 
 
 #-------------------------------------------------------------------------------------#
-# resource "aws_kms_key" "ebs" {
-#   description             = "KMS key for EBS volume"
-#   deletion_window_in_days = 10
-# }
+resource "aws_kms_key" "ebs" {
+  description             = "KMS key for EBS volume"
+  deletion_window_in_days = 10
+  policy = jsonencode( 
+    {
+    "Version": "2012-10-17",
+    "Id": "key-default-1",
+    "Statement": [
+       {
+            "Sid": "Enable IAM User Permissions",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": data.aws_caller_identity.current.user_id
+            },
+            "Action": [
+                      "kms:Create*",
+                      "kms:Describe*",
+                      "kms:Enable*",
+                      "kms:List*",
+                      "kms:Put*",
+                      "kms:Update*",
+                      "kms:Revoke*",
+                      "kms:Disable*",
+                      "kms:Get*",
+                      "kms:Delete*",
+                      "kms:ScheduleKeyDeletion",
+                      "kms:CancelKeyDeletion"
+                  ],
+            "Resource": "*"
+        },
+      {
+        "Sid": "Allow service-linked role use of the CMK",
+        "Effect": "Allow",
+        "Principal": {
+            "AWS": [
+                "arn:aws:iam::973459261718:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+            ]
+        },
+        "Action": [
+            "kms:Encrypt",
+            "kms:Decrypt",
+            "kms:ReEncrypt*",
+            "kms:GenerateDataKey*",
+            "kms:DescribeKey"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "Allow attachment of persistent resources",
+        "Effect": "Allow",
+        "Principal": {
+            "AWS": [
+                "arn:aws:iam::973459261718:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+            ]
+        },
+        "Action": [
+            "kms:CreateGrant"
+        ],
+        "Resource": "*",
+        "Condition": {
+            "Bool": {
+                "kms:GrantIsForAWSResource": true
+            }
+          }
+      }
+    ]
+    }
+)
+}
 
-# resource "aws_ebs_default_kms_key" "example" {
-#   key_arn = aws_kms_key.ebs.arn
-# }
+resource "aws_ebs_default_kms_key" "example" {
+  key_arn = aws_kms_key.ebs.arn
+}
 
 # resource "aws_ebs_encryption_by_default" "example" {
 #   enabled = true
@@ -582,6 +686,7 @@ resource "aws_kms_key" "rds" {
   deletion_window_in_days = 10
 }
 
+# -------------------------------------------------------------------------------------- #
 # RDS instance
 resource "aws_db_instance" "db_instance" {
   allocated_storage    = 20
@@ -639,7 +744,12 @@ echo run_profile=${var.run_profile} >> /etc/environment
   lifecycle {
     create_before_destroy = true
   }
-
+  
+  root_block_device {
+    volume_type = "gp2"
+    volume_size = 8
+    encrypted = true
+  }
 }
 
 # Auto Scaling Groups 
@@ -751,7 +861,7 @@ resource "aws_lb_listener" "front_end" {
   load_balancer_arn = aws_lb.load_balancer.arn
   port              = "443"
   protocol          = "HTTPS"
-  certificate_arn = "arn:aws:acm:us-west-2:973459261718:certificate/c9b6ae4b-c35d-4a37-9428-dba10d09d73c"
+  certificate_arn = var.run_profile == "prod" ? "arn:aws:acm:us-west-2:798539279327:certificate/45890e31-7c1e-478f-a993-f04b34730544": "arn:aws:acm:us-west-2:973459261718:certificate/c9b6ae4b-c35d-4a37-9428-dba10d09d73c"
 
 
   default_action {
