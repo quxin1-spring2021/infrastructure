@@ -475,8 +475,8 @@ resource "aws_security_group" "loadBalancer" {
 
   ingress {
     description = "Allow access from anywhere."
-    from_port   = 80
-    to_port     = 80
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -499,7 +499,7 @@ resource "aws_security_group" "loadBalancer" {
 }
 
 resource "aws_security_group_rule" "webapp" {
-  description = "To Instance Health Checks."
+  description = "To Instance Listener."
   type              = "egress"
   from_port         = 8080
   to_port           = 8080
@@ -509,7 +509,7 @@ resource "aws_security_group_rule" "webapp" {
 }
 
 resource "aws_security_group_rule" "health_check" {
-  description = "To Instance Listener."
+  description = "To Instance Health Checks."
   type              = "egress"
   from_port         = 80
   to_port           = 80
@@ -562,12 +562,32 @@ resource "aws_iam_instance_profile" "app_profile" {
   role = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
 
+
+#-------------------------------------------------------------------------------------#
+# resource "aws_kms_key" "ebs" {
+#   description             = "KMS key for EBS volume"
+#   deletion_window_in_days = 10
+# }
+
+# resource "aws_ebs_default_kms_key" "example" {
+#   key_arn = aws_kms_key.ebs.arn
+# }
+
+# resource "aws_ebs_encryption_by_default" "example" {
+#   enabled = true
+# }
+
+resource "aws_kms_key" "rds" {
+  description             = "KMS key for RDS volum"
+  deletion_window_in_days = 10
+}
+
 # RDS instance
 resource "aws_db_instance" "db_instance" {
   allocated_storage    = 20
   engine               = "mysql"
   engine_version       = "8.0.20"
-  instance_class       = "db.t2.micro"
+  instance_class       = "db.t3.micro"
   identifier           = "csye6225"
   name                 = "csye6225"
   username             = "csye6225"
@@ -577,6 +597,8 @@ resource "aws_db_instance" "db_instance" {
   skip_final_snapshot  = true
   vpc_security_group_ids = [aws_security_group.database.id]
   db_subnet_group_name = aws_db_subnet_group.default.name
+  kms_key_id           = aws_kms_key.rds.arn
+  storage_encrypted    = true
 }
 
 
@@ -617,15 +639,16 @@ echo run_profile=${var.run_profile} >> /etc/environment
   lifecycle {
     create_before_destroy = true
   }
+
 }
 
 # Auto Scaling Groups 
 resource "aws_autoscaling_group" "asg" {
   name                 = "TR-DEMO-ASG"
   launch_configuration = aws_launch_configuration.as_conf.name
-  min_size             = 3
-  max_size             = 5
-  desired_capacity     = 3
+  min_size             = 1
+  max_size             = 1
+  desired_capacity     = 1
   health_check_grace_period = 500
   default_cooldown = 500
   health_check_type         = "EC2"
@@ -643,57 +666,57 @@ resource "aws_autoscaling_group" "asg" {
   }
 }
 
-resource "aws_autoscaling_policy" "web_policy_down" {
-  name = "web_policy_down"
-  scaling_adjustment = -1
-  adjustment_type = "ChangeInCapacity"
-  cooldown = 600
-  autoscaling_group_name = aws_autoscaling_group.asg.name
-}
+# resource "aws_autoscaling_policy" "web_policy_down" {
+#   name = "web_policy_down"
+#   scaling_adjustment = -1
+#   adjustment_type = "ChangeInCapacity"
+#   cooldown = 600
+#   autoscaling_group_name = aws_autoscaling_group.asg.name
+# }
 
-resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
-  alarm_name = "web_cpu_alarm_down"
-  comparison_operator = "LessThanOrEqualToThreshold"
-  evaluation_periods = "5"
-  metric_name = "CPUUtilization"
-  namespace = "AWS/EC2"
-  period = "120"
-  statistic = "Average"
-  threshold = "3"
+# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
+#   alarm_name = "web_cpu_alarm_down"
+#   comparison_operator = "LessThanOrEqualToThreshold"
+#   evaluation_periods = "5"
+#   metric_name = "CPUUtilization"
+#   namespace = "AWS/EC2"
+#   period = "120"
+#   statistic = "Average"
+#   threshold = "3"
 
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.asg.name
-  }
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.asg.name
+#   }
 
-  alarm_description = "This metric monitor EC2 instance CPU utilization"
-  alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
-}
+#   alarm_description = "This metric monitor EC2 instance CPU utilization"
+#   alarm_actions = [ aws_autoscaling_policy.web_policy_down.arn ]
+# }
 
-resource "aws_autoscaling_policy" "web_policy_up" {
-  name = "web_policy_up"
-  scaling_adjustment = 1
-  adjustment_type = "ChangeInCapacity"
-  cooldown = 500
-  autoscaling_group_name = aws_autoscaling_group.asg.name
-}
+# resource "aws_autoscaling_policy" "web_policy_up" {
+#   name = "web_policy_up"
+#   scaling_adjustment = 1
+#   adjustment_type = "ChangeInCapacity"
+#   cooldown = 500
+#   autoscaling_group_name = aws_autoscaling_group.asg.name
+# }
 
-resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
-  alarm_name = "web_cpu_alarm_up"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods = "3"
-  metric_name = "CPUUtilization"
-  namespace = "AWS/EC2"
-  period = "120"
-  statistic = "Average"
-  threshold = "5"
+# resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
+#   alarm_name = "web_cpu_alarm_up"
+#   comparison_operator = "GreaterThanOrEqualToThreshold"
+#   evaluation_periods = "3"
+#   metric_name = "CPUUtilization"
+#   namespace = "AWS/EC2"
+#   period = "120"
+#   statistic = "Average"
+#   threshold = "5"
 
-  dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.asg.name
-  }
+#   dimensions = {
+#     AutoScalingGroupName = aws_autoscaling_group.asg.name
+#   }
 
-  alarm_description = "This metric monitor EC2 instance CPU utilization"
-  alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
-}
+#   alarm_description = "This metric monitor EC2 instance CPU utilization"
+#   alarm_actions = [ aws_autoscaling_policy.web_policy_up.arn ]
+# }
 
 # Targets Group
 resource "aws_lb_target_group" "target_group" {
@@ -706,7 +729,6 @@ resource "aws_lb_target_group" "target_group" {
     interval = 10
     healthy_threshold = 2
   }
-
 }
 
 # Load Balancers
@@ -727,14 +749,21 @@ resource "aws_lb" "load_balancer" {
 # Load Balancer Listener Foward to Targets Group
 resource "aws_lb_listener" "front_end" {
   load_balancer_arn = aws_lb.load_balancer.arn
-  port              = "80"
-  protocol          = "HTTP"
+  port              = "443"
+  protocol          = "HTTPS"
+  certificate_arn = "arn:aws:acm:us-west-2:973459261718:certificate/c9b6ae4b-c35d-4a37-9428-dba10d09d73c"
+
 
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.target_group.arn
   }
 }
+
+# resource "aws_lb_listener_certificate" "certificate" {
+#   listener_arn    = aws_lb_listener.front_end.arn
+#   certificate_arn = "arn:aws:acm:us-west-2:973459261718:certificate/c9b6ae4b-c35d-4a37-9428-dba10d09d73c"
+# }
 
 # Create a new ALB Target Group attachment
 resource "aws_autoscaling_attachment" "asg_attachment_bar" {
