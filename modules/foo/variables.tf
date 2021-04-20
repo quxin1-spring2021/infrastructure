@@ -1,13 +1,14 @@
 variable "run_profile" {
-    type        = string
+    type = string
 }
 
 variable "vpc_name" {
   type = string
 }
 
-variable "password" {
+variable "db_password" {
   type = string
+  sensitive = true
 }
 
 variable "ami" {

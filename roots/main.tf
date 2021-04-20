@@ -6,7 +6,6 @@ provider "aws" {
   profile = var.run_profile
 }
 
-
 #-------------------------------------------------------------------------------------#
 # data offers informations of current profile
 data "aws_caller_identity" "current" {}
@@ -38,8 +37,8 @@ resource "aws_vpc" "my_vpc" {
     Name = "ver-${var.ver}-${var.vpc_name}-vpc"
   }
 }
-#-------------------------------------------------------------------------------------#
 
+#-------------------------------------------------------------------------------------#
 # Subnets of New VPC
 resource "aws_subnet" "subnet01" {
   vpc_id     = aws_vpc.my_vpc.id
@@ -288,8 +287,6 @@ resource "aws_iam_policy" "Publish_to_SNS" {
 })
 }
 
-
-
 #-------------------------------------------------------------------------------------#
 # create IAM User
 
@@ -309,7 +306,6 @@ resource "aws_iam_user_policy_attachment" "ghaction_CodeDeploy" {
   user       = aws_iam_user.ghactions.name
   policy_arn = aws_iam_policy.GH_Code_Deploy.arn
 }
-
 
 #-------------------------------------------------------------------------------------#
 # create IAM Role for EC2 instances which serve web application
@@ -465,7 +461,6 @@ resource "aws_codedeploy_deployment_group" "webapp_lambda_deployment" {
     deployment_option = "WITH_TRAFFIC_CONTROL"
     deployment_type = "BLUE_GREEN"
   }
-
 }
 
 #-------------------------------------------------------------------------------------#
@@ -524,7 +519,6 @@ resource "aws_security_group" "database" {
     protocol    = "tcp"
     security_groups = [aws_security_group.application.id]
   }
-
 }
 
 #-------------------------------------------------------------------------------------#
@@ -534,7 +528,6 @@ resource "aws_security_group" "loadBalancer" {
   name        = "LBSecurityGroup"
   description = "EC2 security group for load balancer."
   vpc_id      = aws_vpc.my_vpc.id
-
 
   ingress {
     description = "Allow access from anywhere."
@@ -586,9 +579,7 @@ resource "aws_s3_bucket" "object" {
   }
 
   lifecycle_rule {
-
     enabled = true
-
     transition {
       days = 30
       storage_class = "STANDARD_IA"
@@ -596,7 +587,6 @@ resource "aws_s3_bucket" "object" {
   }
 
   force_destroy = true
-
 }
 
 #-------------------------------------------------------------------------------------#
@@ -616,7 +606,6 @@ resource "aws_iam_instance_profile" "app_profile" {
   name = "app_iam_ec2_profile"
   role = aws_iam_role.CodeDeployEC2ServiceRole.name
 }
-
 
 #-------------------------------------------------------------------------------------#
 # New Customer Managed Key for EBS
@@ -714,7 +703,7 @@ resource "aws_db_instance" "db_instance" {
   identifier           = var.rds_db_instance.identifier
   name                 = var.rds_db_instance.name
   username             = var.rds_db_instance.usename
-  password             = var.password
+  password             = var.db_password
   multi_az             = false
   publicly_accessible  = false
   skip_final_snapshot  = true
@@ -723,7 +712,6 @@ resource "aws_db_instance" "db_instance" {
   kms_key_id           = aws_kms_key.rds.arn
   storage_encrypted    = var.rds_db_instance.encrypt_option
 }
-
 
 #-------------------------------------------------------------------------------------#
 # Route 53 A Record for Web Application Instances Load Balancer
@@ -737,7 +725,7 @@ resource "aws_route53_record" "webapp" {
     zone_id                = aws_lb.load_balancer.zone_id
     evaluate_target_health = true
   }
-  }
+}
 
 #-------------------------------------------------------------------------------------#
 # Launch Configuration for Autoscaling Group Use
@@ -754,7 +742,7 @@ resource "aws_launch_configuration" "as_conf" {
 echo "Hello World" >> /home/ubuntu/testfile.txt
 echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
 echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
-echo RDS_PASSWORD=${var.password} >> /etc/environment
+echo RDS_PASSWORD=${var.db_password} >> /etc/environment
 echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
 echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
 echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment
@@ -878,12 +866,10 @@ resource "aws_lb" "load_balancer" {
   security_groups    = [aws_security_group.loadBalancer.id]
   subnets            = [aws_subnet.subnet01.id, aws_subnet.subnet02.id, aws_subnet.subnet03.id]
 
-
   tags = {
     Environment = "production"
   }
 }
-
 
 #-------------------------------------------------------------------------------------#
 # Load Balancer Listener Foward to Targets Group
@@ -899,7 +885,6 @@ resource "aws_lb_listener" "front_end" {
     target_group_arn = aws_lb_target_group.target_group.arn
   }
 }
-
 
 #-------------------------------------------------------------------------------------#
 # Attach ALB Target Group to the Autoscaling Group
@@ -1098,7 +1083,7 @@ resource "aws_dynamodb_table" "basic-dynamodb-table" {
 # /bin/echo "Hello World" >> /home/ubuntu/testfile.txt
 # /bin/echo RDS_HOSTNAME=${aws_db_instance.db_instance.address} >> /etc/environment
 # /bin/echo RDS_USERNAME=${aws_db_instance.db_instance.username} >> /etc/environment
-# /bin/echo RDS_PASSWORD=${var.password} >> /etc/environment
+# /bin/echo RDS_PASSWORD=${var.db_password} >> /etc/environment
 # /bin/echo RDS_DATABASE=${aws_db_instance.db_instance.name} >> /etc/environment
 # /bin/echo RDS_PORT=${aws_db_instance.db_instance.port} >> /etc/environment
 # /bin/echo BUCKET_NAME=${aws_s3_bucket.object.id} >> /etc/environment

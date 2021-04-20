@@ -80,7 +80,7 @@ variable "rds_db_instance" {
   }
 }
 
-variable "password" {
+variable "db_password" {
   type = string
   sensitive = true
 }
