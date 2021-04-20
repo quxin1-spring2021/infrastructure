@@ -45,12 +45,52 @@ variable "vpc_name" {
   type = string
 }
 
+variable "route53_record" {
+  type = object({
+    prod = string
+    dev = string
+  })
+
+  default = {
+    prod = "Z0618647372SM5AHYPKSG"
+    dev = "Z06188442KAEZYTY2ORM4"
+  }
+}
+
+variable "rds_db_instance" {
+  type = object({
+    engine = string
+    engine_version = string
+    allocated_storage = number
+    instance_class = string
+    identifier = string
+    username = string
+    name = string
+    encrypt_option = bool
+  })
+  default = {
+    engine = "mysql"
+    engine_version = "8.0.20"
+    allocated_storage = 20
+    instance_class = "db.t3.micro"
+    identifier = "webapp-rds-db"
+    username = "webapp"
+    name = "webapp"
+    encrypt_option = true
+  }
+}
+
 variable "password" {
   type = string
+  sensitive = true
 }
 
 variable "ami" {
   type = string
+  validation {
+    condition     = length(var.ami) > 4 && substr(var.ami, 0, 4) == "ami-"
+    error_message = "The image_id value must be a valid AMI id, starting with \"ami-\"."
+  }
 }
 
 variable "bucket_name" {

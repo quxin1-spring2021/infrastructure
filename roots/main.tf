@@ -1,13 +1,19 @@
 #-------------------------------------------------------------------------------------#
-
+# Provider
 provider "aws" {
   region = var.vpc_region
   shared_credentials_file = var.credential_file
   profile = var.run_profile
 }
 
-#-------------------------------------------------------------------------------------#
 
+#-------------------------------------------------------------------------------------#
+# data offers informations of current profile
+data "aws_caller_identity" "current" {}
+
+#-------------------------------------------------------------------------------------#
+# dummy zip file for initialize lambda function with empty function, the actual lambda function
+# will be updated through CI/CD workflow.
 data "archive_file" "dummy" {
   type = "zip"
   output_path = "./lambda_function_payload.zip"
@@ -19,8 +25,7 @@ data "archive_file" "dummy" {
 }
 
 #-------------------------------------------------------------------------------------#
-
-# create vpc
+# New VPC
 resource "aws_vpc" "my_vpc" {
   cidr_block       = var.vpc_cidr_block
   enable_dns_hostnames = true
@@ -30,56 +35,54 @@ resource "aws_vpc" "my_vpc" {
   instance_tenancy = "default"
 
   tags = {
-    Name = "demo-${var.ver}-${var.vpc_name}-vpc"
+    Name = "ver-${var.ver}-${var.vpc_name}-vpc"
   }
 }
 #-------------------------------------------------------------------------------------#
 
-# create subnets
+# Subnets of New VPC
 resource "aws_subnet" "subnet01" {
   vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet1_cidr_block
   availability_zone = "${var.vpc_region}a"
     map_public_ip_on_launch = true
   tags = {
-    Name = "demo-${var.ver}-subnet-01"
+    Name = "ver-${var.ver}-subnet-01"
   }
 }
 
-#-------------------------------------------------------------------------------------#
 resource "aws_subnet" "subnet02" {
   vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet2_cidr_block
   availability_zone = "${var.vpc_region}b"
   map_public_ip_on_launch = true
   tags = {
-    Name = "demo-${var.ver}-subnet-02"
+    Name = "ver-${var.ver}-subnet-02"
   }
 }
 
-#-------------------------------------------------------------------------------------#
 resource "aws_subnet" "subnet03" {
   vpc_id     = aws_vpc.my_vpc.id
   cidr_block = var.subnet3_cidr_block
   availability_zone = "${var.vpc_region}c"
   map_public_ip_on_launch = true
   tags = {
-    Name = "demo-${var.ver}-subnet-03"
+    Name = "ver-${var.ver}-subnet-03"
   }
 }
 
-# create internet gateway
 #-------------------------------------------------------------------------------------#
+# create internet gateway
 resource "aws_internet_gateway" "gw" {
   vpc_id = aws_vpc.my_vpc.id
 
   tags = {
-    Name = "demo-${var.ver}-internet-gateway"
+    Name = "ver-${var.ver}-internet-gateway"
   }
 }
 
-# create a public route table
 #-------------------------------------------------------------------------------------#
+# create a public route table
 resource "aws_route_table" "rt" {
   vpc_id = aws_vpc.my_vpc.id
 
@@ -88,7 +91,7 @@ resource "aws_route_table" "rt" {
     gateway_id = aws_internet_gateway.gw.id
   }
   tags = {
-    Name = "demo-${var.ver}-route-table"
+    Name = "ver-${var.ver}-route-table"
   }
 }
 
@@ -110,9 +113,9 @@ resource "aws_route_table_association" "a3" {
 }
 
 #-------------------------------------------------------------------------------------#
-# create IAM policy
+# IAM policy to allow applications on EC2 instances operate on S3 bucket
 resource "aws_iam_policy" "webapp_s3_policy" {
-  name        = "WebAppS3-Demo"
+  name        = "WebAppS3-Policy"
   description = "Permissions for the S3 bucket to create secure policies."
 
   # Terraform's "jsonencode" function converts a
@@ -135,9 +138,9 @@ resource "aws_iam_policy" "webapp_s3_policy" {
 }
 
 #-------------------------------------------------------------------------------------#
-# create IAM policy
+# IAM policy to allow web application role use kms keys
 resource "aws_iam_policy" "webapp_kms_policy" {
-  name        = "WebApp-KMS-Demo"
+  name        = "WebApp-KMS-Policy"
   description = "Permissions for the KMS to create secure policies."
 
   # Terraform's "jsonencode" function converts a
@@ -167,7 +170,7 @@ resource "aws_iam_policy" "webapp_kms_policy" {
 }
 
 #-------------------------------------------------------------------------------------#
-# Policy allows EC2 instances to read data from S3 buckets. 
+# Policy allows EC2 instances to get deploy package from S3 bucket. 
 resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
   name        = "CodeDeploy-EC2-S3"
   description = "Policy allows EC2 instances to read data from S3 buckets. "
@@ -193,7 +196,7 @@ resource "aws_iam_policy" "CodeDeploy_EC2_S3" {
 }
 
 #-------------------------------------------------------------------------------------#
-# Policy allows EC2 instances to read data from S3 buckets. 
+# Policy allows GitHub Actions put new artifacte to S3 bucket. 
 resource "aws_iam_policy" "GH_Upload_To_S3" {
   name        = "GH-Upload-To-S3"
   description = "Permissions for the S3 bucket to create secure policies."
@@ -220,11 +223,7 @@ resource "aws_iam_policy" "GH_Upload_To_S3" {
 }
 
 #-------------------------------------------------------------------------------------#
-data "aws_caller_identity" "current" {}
-
-#-------------------------------------------------------------------------------------#
-
-# Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances.
+# Policy allows GitHub Actions to call CodeDeploy APIs to CodeDeploy applications.
 resource "aws_iam_policy" "GH_Code_Deploy" {
   name        = "GH-Code-Deploy"
   description = "Policy allows GitHub Actions to call CodeDeploy APIs to initiate application deployment on EC2 instances."
@@ -240,7 +239,7 @@ resource "aws_iam_policy" "GH_Code_Deploy" {
                 "codedeploy:GetApplicationRevision",
                 "codedeploy:RegisterApplicationRevision"
             ],
-            "Resource": "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:application:${aws_codedeploy_app.csye6225_webapp.name}"
+            "Resource": "arn:aws:codedeploy:${var.vpc_region}:${data.aws_caller_identity.current.account_id}:application:${aws_codedeploy_app.webapp.name}"
         },
         {
             "Effect": "Allow",
@@ -313,7 +312,7 @@ resource "aws_iam_user_policy_attachment" "ghaction_CodeDeploy" {
 
 
 #-------------------------------------------------------------------------------------#
-# create CodeDeployEC2ServiceRole IAM Role
+# create IAM Role for EC2 instances which serve web application
 resource "aws_iam_role" "CodeDeployEC2ServiceRole" {
   name = "CodeDeploy-EC2-Service-Role"
   description = "for EC2 instances that will be used to host your web application."
@@ -333,13 +332,12 @@ resource "aws_iam_role" "CodeDeployEC2ServiceRole" {
 }
 
 #-------------------------------------------------------------------------------------#
-# attach CodeDeployEC2ServiceRole and policy
+# attach CodeDeployEC2ServiceRole and policies
 resource "aws_iam_role_policy_attachment" "CodeDeployEC2Policy_S3_Object_Attach" {
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
   policy_arn = aws_iam_policy.webapp_s3_policy.arn
 }
 
-# attach CodeDeployEC2ServiceRole and policy
 resource "aws_iam_role_policy_attachment" "CodeDeployEC2RolePolicy_Attach" {
   role       = aws_iam_role.CodeDeployEC2ServiceRole.name
   policy_arn = aws_iam_policy.CodeDeploy_EC2_S3.arn
@@ -415,16 +413,18 @@ resource "aws_iam_role_policy_attachment" "CodeDeployRoleLambdaPolicyS3_Attach" 
 }
 
 #-------------------------------------------------------------------------------------#
-resource "aws_codedeploy_app" "csye6225_webapp" {
+# CodeDepoly Application for EC2 Web Application
+resource "aws_codedeploy_app" "webapp" {
   compute_platform = "Server"
-  name             = "csye6225-webapp"
+  name             = "webapp"
 }
 
 #-------------------------------------------------------------------------------------#
-resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
-  app_name              = aws_codedeploy_app.csye6225_webapp.name
+# CodeDeploy deployment group for updating web application
+resource "aws_codedeploy_deployment_group" "webapp_deployment" {
+  app_name              = aws_codedeploy_app.webapp.name
   deployment_config_name = "CodeDeployDefault.OneAtATime"
-  deployment_group_name = "csye6225-webapp-deployment"
+  deployment_group_name = "webapp-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRole.arn
 
   deployment_style {
@@ -447,16 +447,18 @@ resource "aws_codedeploy_deployment_group" "csye6225_webapp_deployment" {
 }
 
 #-------------------------------------------------------------------------------------#
-resource "aws_codedeploy_app" "csye6225_lambda" {
+# CodeDepoly Application for lambda function
+resource "aws_codedeploy_app" "webapp_lambda" {
   compute_platform = "Lambda"
-  name             = "csye6225-lambda"
+  name             = "codedeploy-webapp-lambda"
 }
 
 #-------------------------------------------------------------------------------------#
-resource "aws_codedeploy_deployment_group" "csye6225_lambda_deployment" {
-  app_name              = aws_codedeploy_app.csye6225_lambda.name
+# CodeDeploy deployment group for lambda function
+resource "aws_codedeploy_deployment_group" "webapp_lambda_deployment" {
+  app_name              = aws_codedeploy_app.webapp_lambda.name
   deployment_config_name = "CodeDeployDefault.LambdaAllAtOnce"
-  deployment_group_name = "csye6225-lambda-deployment"
+  deployment_group_name = "webapp-lambda-deployment"
   service_role_arn      = aws_iam_role.CodeDeployServiceRoleLambda.arn
 
     deployment_style {
@@ -467,7 +469,8 @@ resource "aws_codedeploy_deployment_group" "csye6225_lambda_deployment" {
 }
 
 #-------------------------------------------------------------------------------------#
-# application security group
+# Application security group
+# Only allows ingress from load balancer
 resource "aws_security_group" "application" {
   name        = "WebApplicationSecurityGroup"
   description = "WebApplicationSecurityGroup"
@@ -498,6 +501,8 @@ resource "aws_security_group" "application" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Database security group, only enable web application security group to send request.
+# Default egress is anywhere
 resource "aws_security_group" "database" {
   name        = "DBSecurityGroup"
   description = "EC2 security group for your RDS instances."
@@ -523,6 +528,8 @@ resource "aws_security_group" "database" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Load balancer security group, enable HTTPS port to secure connections to load balancer
+# Two more rules are wrote as "aws_security_group_rule"
 resource "aws_security_group" "loadBalancer" {
   name        = "LBSecurityGroup"
   description = "EC2 security group for load balancer."
@@ -539,6 +546,8 @@ resource "aws_security_group" "loadBalancer" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Add security group rule for load balancer security group to enable webapp port
+# Use this resouce since the security rule references each other
 resource "aws_security_group_rule" "webapp" {
   description = "To Instance Listener."
   type              = "egress"
@@ -550,6 +559,8 @@ resource "aws_security_group_rule" "webapp" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Add security group rule for load balancer security group to enable health check port
+# Use this resouce since the security rule references each other
 resource "aws_security_group_rule" "health_check" {
   description = "To Instance Health Checks."
   type              = "egress"
@@ -561,7 +572,7 @@ resource "aws_security_group_rule" "health_check" {
 }
 
 #-------------------------------------------------------------------------------------#
-# S3 bucket
+# S3 bucket for image object storing
 resource "aws_s3_bucket" "object" {
   bucket = var.bucket_name
   acl    = "private"
@@ -600,6 +611,7 @@ resource "aws_db_subnet_group" "default" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Instance Profile from the EC2 Service Role
 resource "aws_iam_instance_profile" "app_profile" {
   name = "app_iam_ec2_profile"
   role = aws_iam_role.CodeDeployEC2ServiceRole.name
@@ -607,6 +619,8 @@ resource "aws_iam_instance_profile" "app_profile" {
 
 
 #-------------------------------------------------------------------------------------#
+# New Customer Managed Key for EBS
+# Policy of this KMS key is customzied to let autoscaling service role has permissions to use this key.
 resource "aws_kms_key" "ebs" {
   description             = "KMS key for EBS volume"
   deletion_window_in_days = 10
@@ -619,7 +633,7 @@ resource "aws_kms_key" "ebs" {
             "Sid": "Enable IAM User Permissions",
             "Effect": "Allow",
             "Principal": {
-                "AWS": [data.aws_caller_identity.current.user_id, "arn:aws:iam::798539279327:root"],
+                "AWS": [data.aws_caller_identity.current.user_id, "arn:aws:iam::${data.aws_caller_identity.current.user_id}:root"],
             },
             "Action": [
                       "kms:Create*",
@@ -678,27 +692,28 @@ resource "aws_kms_key" "ebs" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Use the new customer managed key for ebs as default key for new ebs which enables encryption
 resource "aws_ebs_default_kms_key" "example" {
   key_arn = aws_kms_key.ebs.arn
 }
 
-
 #-------------------------------------------------------------------------------------#
+# New Customer Managed Key for RDS
 resource "aws_kms_key" "rds" {
   description             = "KMS key for RDS volum"
   deletion_window_in_days = 10
 }
 
 # -------------------------------------------------------------------------------------- #
-# RDS instance
+# RDS instance, db.t2.micro is the free tire db instance but it doesn't support kms encryption
 resource "aws_db_instance" "db_instance" {
-  allocated_storage    = 20
-  engine               = "mysql"
-  engine_version       = "8.0.20"
-  instance_class       = "db.t3.micro"
-  identifier           = "csye6225"
-  name                 = "csye6225"
-  username             = "csye6225"
+  allocated_storage    = var.rds_db_instance.allocated_storage
+  engine               = var.rds_db_instance.engine
+  engine_version       = var.rds_db_instance.engine_version
+  instance_class       = var.rds_db_instance.identifier
+  identifier           = var.rds_db_instance.identifier
+  name                 = var.rds_db_instance.name
+  username             = var.rds_db_instance.usename
   password             = var.password
   multi_az             = false
   publicly_accessible  = false
@@ -706,13 +721,14 @@ resource "aws_db_instance" "db_instance" {
   vpc_security_group_ids = [aws_security_group.database.id]
   db_subnet_group_name = aws_db_subnet_group.default.name
   kms_key_id           = aws_kms_key.rds.arn
-  storage_encrypted    = true
+  storage_encrypted    = var.rds_db_instance.encrypt_option
 }
 
 
 #-------------------------------------------------------------------------------------#
+# Route 53 A Record for Web Application Instances Load Balancer
 resource "aws_route53_record" "webapp" {
-  zone_id = var.run_profile == "prod" ? "Z0618647372SM5AHYPKSG": "Z06188442KAEZYTY2ORM4"
+  zone_id = var.run_profile == "prod" ? var.route53_record.prod: var.route53_record.dev
   name    = "${var.run_profile}.chuhsin.me"
   type    = "A"
 
@@ -724,9 +740,10 @@ resource "aws_route53_record" "webapp" {
   }
 
 #-------------------------------------------------------------------------------------#
-# Launch Configurations
+# Launch Configuration for Autoscaling Group Use
+# UserData is used to configure database and SNS module of application
 resource "aws_launch_configuration" "as_conf" {
-  name   = "TR-DEMO-LC-1"
+  name   = "TR-LC"
   image_id      = var.ami
   instance_type = "t2.micro"
   security_groups = [aws_security_group.application.id]
@@ -760,11 +777,11 @@ echo run_profile=${var.run_profile} >> /etc/environment
 #-------------------------------------------------------------------------------------#
 # Auto Scaling Groups 
 resource "aws_autoscaling_group" "asg" {
-  name                 = "TR-DEMO-ASG"
+  name                 = "TR-ASG"
   launch_configuration = aws_launch_configuration.as_conf.name
-  min_size             = 1
-  max_size             = 1
-  desired_capacity     = 1
+  min_size             = 3
+  max_size             = 5
+  desired_capacity     = 3
   health_check_grace_period = 500
   default_cooldown = 500
   health_check_type         = "EC2"
@@ -783,6 +800,7 @@ resource "aws_autoscaling_group" "asg" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Autoscaling Group Scale Down policy and alarm
 resource "aws_autoscaling_policy" "web_policy_down" {
   name = "web_policy_down"
   scaling_adjustment = -1
@@ -810,6 +828,7 @@ resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_down" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Autoscaling Group Scale Up policy and alarm
 resource "aws_autoscaling_policy" "web_policy_up" {
   name = "web_policy_up"
   scaling_adjustment = 1
@@ -839,7 +858,7 @@ resource "aws_cloudwatch_metric_alarm" "web_cpu_alarm_up" {
 #-------------------------------------------------------------------------------------#
 # Targets Group
 resource "aws_lb_target_group" "target_group" {
-  name     = "TF-DEMO-TG"
+  name     = "TF-TG"
   port     = 8080
   protocol = "HTTP"
   vpc_id   = aws_vpc.my_vpc.id
@@ -851,7 +870,7 @@ resource "aws_lb_target_group" "target_group" {
 }
 
 #-------------------------------------------------------------------------------------#
-# Load Balancers
+# Load Balancer
 resource "aws_lb" "load_balancer" {
   name               = "TF-LB"
   internal           = false
@@ -883,17 +902,16 @@ resource "aws_lb_listener" "front_end" {
 
 
 #-------------------------------------------------------------------------------------#
-# Create a new ALB Target Group attachment
+# Attach ALB Target Group to the Autoscaling Group
 resource "aws_autoscaling_attachment" "asg_attachment_bar" {
   autoscaling_group_name = aws_autoscaling_group.asg.id
   alb_target_group_arn   = aws_lb_target_group.target_group.arn
 }
 
 #-------------------------------------------------------------------------------------#
-
-# Lambda System
+# IAM role for lambda function
 resource "aws_iam_role" "iam_for_lambda" {
-  name = "iam_for_lambda"
+  name = "IAM_ROLE_FOR_Lambda"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -910,6 +928,7 @@ resource "aws_iam_role" "iam_for_lambda" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Permission for Lambda Function to Create Logs and send emails through SES
 resource "aws_iam_policy" "lambda_log_policy" {
   name        = "Lambda-Log-Policy"
   description = "Permission for Lambda Function to Create Logs"
@@ -935,18 +954,21 @@ resource "aws_iam_policy" "lambda_log_policy" {
 }
 
 #-------------------------------------------------------------------------------------#
+# log policy to allow lambda function to log on CloudWatch logging
 resource "aws_iam_role_policy_attachment" "lambda" {
   role       = aws_iam_role.iam_for_lambda.name
   policy_arn = aws_iam_policy.lambda_log_policy.arn
 }
 
 #-------------------------------------------------------------------------------------#
+# attach DynamoDB Access policy to lambda role for lambda function
 resource "aws_iam_role_policy_attachment" "lambda_dynamoDB" {
   role       = aws_iam_role.iam_for_lambda.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
 }
 
 #-------------------------------------------------------------------------------------#
+# Lambda Function
 resource "aws_lambda_function" "lambda_function" {
   filename = data.archive_file.dummy.output_path
   function_name = "lambda_sns_function"
@@ -963,6 +985,7 @@ resource "aws_lambda_function" "lambda_function" {
 }
 
 #-------------------------------------------------------------------------------------#
+# Lambda Alias point to the lambda functino version, imported this for Lambda function CD with CodeDeploy
 resource "aws_lambda_alias" "lambda_alias" {
   name             = "my_alias"
   description      = "a sample description"
@@ -972,15 +995,17 @@ resource "aws_lambda_alias" "lambda_alias" {
 }
 
 #-------------------------------------------------------------------------------------#
+# SNS topics
 resource "aws_sns_topic" "book_create" {
-  name = "demo-book-created"
+  name = "book-created"
 }
 
 resource "aws_sns_topic" "book_delete" {
-  name = "demo-book-deleted"
+  name = "book-deleted"
 }
 
 #-------------------------------------------------------------------------------------#
+# subscription of SNS topic from lambda function
 resource "aws_sns_topic_subscription" "book_created_lambda_target" {
   topic_arn = aws_sns_topic.book_create.arn
   protocol  = "lambda"
@@ -994,6 +1019,7 @@ resource "aws_sns_topic_subscription" "book_deleted_lambda_target" {
 }
 
 #-------------------------------------------------------------------------------------#
+# permission to allow SNS service invoke lambda function
 resource "aws_lambda_permission" "with_sns_create" {
   statement_id  = "AllowExecutionFromSNSCreate"
   action        = "lambda:InvokeFunction"
@@ -1011,6 +1037,7 @@ resource "aws_lambda_permission" "with_sns_delete" {
 }
 
 #-------------------------------------------------------------------------------------#
+# DynamoDB table, to store the message id to prevent duplicate emails been sent to users
 resource "aws_dynamodb_table" "basic-dynamodb-table" {
   name           = "messages"
   billing_mode   = "PROVISIONED"
@@ -1031,6 +1058,7 @@ resource "aws_dynamodb_table" "basic-dynamodb-table" {
 #-------------------------------------------------------------------------------------#
 
 # EC2 instance
+# This is a EC2 instance template to serve web application, the using launch configuration is based on this resource
 
 # resource "aws_instance" "webapp" {
 #   ami           = var.ami
